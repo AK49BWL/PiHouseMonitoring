@@ -1,4 +1,4 @@
-<?php // pitemp.php v2.0.20240115.1645
+<?php // pitemp.php v2.0.20240127.1519
 include $_SERVER['DOCUMENT_ROOT'].'/includes/include.php';
 // PHP7 does some weird shit with floats and JSON so we need to ini_set precisions. [Done here because of remote hosting possibly ignoring custom php.ini and .htaccess modifications]
 ini_set('precision', -1);
@@ -85,7 +85,7 @@ function house_index() {
                 $tskip++;
                 continue;
             }
-            $tempout[] = ($context['user']['is_admin'] && isset($tempdata['ch']) ? 'Sensor '.($tempdata['ch'] ? $tempdata['p'] + 8 : $tempdata['p']).': ' : '').$tempdata['name'].': '.$tempdata['temp']['f'].'°F, '.$tempdata['temp']['c'].'°C';
+            $tempout[] = ($context['user']['is_admin'] && isset($tempdata['ch']) ? 'Sensor '.($tempdata['ch'] ? $tempdata['p'] + 8 : $tempdata['p']).': ' : '').$tempdata['name'].': '.$tempdata['temp']['f'].'&#51704;F, '.$tempdata['temp']['c'].'&#51704;C';
         }
         $return = '<br />
 <span class="notice">'.date('F j, Y H:i:s', strtotime($data['date']['s'])).'</span><br />'.($oldData ? '
@@ -103,7 +103,7 @@ Last recorded AC power loss: '.$data['backup']['powerlastoff'].', '.($data['back
 <span class="notice2">Temperatures:</span><br />
 '.implode ('<br />
 ', $tempout).'<br />'.($data['ups']['enable'] ? '
-System UPS Battery: '.round((($data['ups']['data']['main']['battTempC'] * 1.8) + 32), 1).'°F, '.$data['ups']['data']['main']['battTempC'].'°C<br />' : '').($tskip ? '
+System UPS Battery: '.round((($data['ups']['data']['main']['battTempC'] * 1.8) + 32), 1).'&#51704;F, '.$data['ups']['data']['main']['battTempC'].'&#51704;C<br />' : '').($tskip ? '
 '.$tskip.' sensors skipped due to not being in use<br /><br />
 <a href="pitemp.php?do=about">About this page</a><br />' : '');
 
@@ -179,7 +179,7 @@ function house_logFromPi() {
 
     // Check AC Power status
     if ($post['backup']['power1'] !== $post['backup']['power2'])
-        $data[] = array( 'date' => $post['date']['u'], 'sys' => 'Power', 'stat' => $post['backup']['power1'], 'comment' => 0 );
+        $data[] = array( 'date' => $post['date']['u'], 'sys' => 'Power', 'stat' => $post['backup']['power1'], 'comment' => 'V-In MicroUSB: '.$post['ups']['data']['main']['v_chgM'].'mV, V-In USB-C: '.$post['ups']['data']['main']['v_chgC'].'mV' );
 
     // One last check, has thermo.py been freshly restarted?
     if (!$post['backup']['saved'])

@@ -1,7 +1,7 @@
 # Pulls data from website to update variables used by thermo.py
 # This script has been written for Python 2.7
 # Author: AK49BWL
-# Updated: 01/13/2024 20:42
+# Updated: 01/27/2024 14:45
 
 import datetime
 import json
@@ -27,8 +27,9 @@ while 1:
             if js['data'] == 'good':
                 old = json.loads(open('webvars.json', 'r').read())
                 if not int(js['lastWebChange']) == int(old['lastWebChange']): # Let's not bother updating if nothing's changed.
+                    toStr = dict([(str(k), str(v)) for k, v in js.items()]) # Make this NOT UNICODE!
                     f = open("webvars.json", "w")
-                    f.write(r.content)
+                    f.write(str(json.dumps(toStr)))
                     f.close()
                     print('\x1b[1;32;42mReloaded WebVars successfully\x1b[0m')
                 else:

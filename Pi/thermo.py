@@ -2,7 +2,7 @@
 # data to SSD1306-compliant displays, and log data to file + send to my website
 # This script has been written for Python 2.7
 # Author: AK49BWL
-# Updated: 01/19/2024 11:38
+# Updated: 01/27/2024 15:05
 
 # TO DO: Create AC power loss reaction function -- Auto-shutdown pi and UPS unit on power loss after 30 minutes. UPS can probably last much longer but meh.
 # Enable the UPS shutdown timer, force-send data to web and backup, send command to system to shut down, then exit the script.
@@ -205,21 +205,30 @@ def systemUpTime():
 # This file is changed by another script which downloads updates from my website to dynamically change variables on the fly rather than having to restart the script every time
 def loadwebvars():
     try:
-        wv = json.loads(open('webvars.json', 'r').read())
-        if int(wv['lastWebChange']) and not int(wv['lastWebChange']) == int(backup['lastWebChange']): # Let's update some vars! For now these will have to be manually added until I think of a way to make it work dynamically.
-            backup['lastWebChange'] = int(wv['lastWebChange'])                                        # ALL VARS MUST BE TYPE-CAST AS THE REQUESTS LIBRARY RETURNS UNICODE AND THERE APPEARS TO BE NO WAY AROUND IT!
-            backup['tempRefVolt'] = float(wv['tempRefVolt'])
-            backup['tempGlobalCorr'] = int(wv['tempGlobalCorr'])
-            hvac['ac']['enable'] = int(wv['enable_ac'])
-            hvac['afan']['enable'] = int(wv['enable_afan'])
-            hvac['heat']['enable'] = int(wv['enable_heat'])
-            hvac['hfan']['enable'] = int(wv['enable_hfan'])
+        wvl = json.loads(open('webvars.json', 'r').read())
+        if int(wvl['lastWebChange']) and not int(wvl['lastWebChange']) == int(backup['lastWebChange']): # Let's update some vars! For now these will have to be manually added until I think of a way to make it work dynamically.
+            wv = dict([(str(k), str_or_int(v)) for k, v in wvl.items()]) # Make this NOT UNICODE!
+            backup['lastWebChange'] = wv['lastWebChange']
+            backup['tempRefVolt'] = wv['tempRefVolt']
+            backup['tempGlobalCorr'] = wv['tempGlobalCorr']
+            hvac['ac']['enable'] = wv['enable_ac']
+            hvac['afan']['enable'] = wv['enable_afan']
+            hvac['heat']['enable'] = wv['enable_heat']
+            hvac['hfan']['enable'] = wv['enable_hfan']
             print('%sReloaded webvars last saved %s%s' % (color['success'], wv['lastWebChange'], color['end']))
             if not do_log: # Don't need this logged on first run
                 log_stat(to_file = 1, customtext = 'Reloaded webvars last saved %s' % (wv['lastWebChange']))
     except (NameError, OSError) as exceptionerror: # Problem? Forget it.
         print('%sError loading webvars, reusing existing values - %s%s' % (color['error'], exceptionerror, color['end']))
         log_stat(to_file = 1, customtext = 'Error loading webvars, reusing existing values - %s' % (exceptionerror))
+
+def str_or_int(var):
+    try:
+        return int(var)
+    except ValueError:
+        print "Var not int: %s" % (var)
+        return str(var)
+    
 
 # Set up the website request threading system
 def to_web(senddata):
@@ -502,7 +511,7 @@ while 1:
                     ups['data']['main']['battCap'] = "%d" % (ups['read'][6] << 8 | ups['read'][5])
 
             # Check current mains power status and log if changed
-            backup['power1'] = 0 if not int(ups['data']['main']['v_chgC']) > 4000 and not int(ups['data']['main']['v_chgM']) > 4000 else 1
+            backup['power1'] = 0 if not int(ups['data']['main']['v_chgC']) > 1000 and not int(ups['data']['main']['v_chgM']) > 1000 else 1
             if not backup['power1'] == backup['power2']:
                 log_stat(to_file = 1, customtext = "AC Power has been %s" % ('restored' if backup['power1'] else 'lost'))
                 notes[notesi] = "AC Power has been %s" % ('restored' if backup['power1'] else 'lost')
@@ -525,7 +534,7 @@ while 1:
     # Print current status of systems
     if not dec['cmd']:
         dec['cmd'] = timer['cmd']
-        print('A/C is %s, Heater is %s, HVAC Blower is %s, Attic Fan is %s' % (color['On'] if hvac['ac']['stat'] else color['Off'],color['On'] if hvac['heat']['stat'] else color['Off'],color['On'] if hvac['hfan']['stat'] else color['Off'],color['On'] if hvac['afan']['stat'] else color['Off']))
+        print('A/C is %s, Heater is %s, HVAC Blower is %s, Attic Fan is %s, AC Power is %s' % (color['On'] if hvac['ac']['stat'] else color['Off'],color['On'] if hvac['heat']['stat'] else color['Off'],color['On'] if hvac['hfan']['stat'] else color['Off'],color['On'] if hvac['afan']['stat'] else color['Off'],color['On'] if backup['power1'] else color['Off']))
     dec['cmd'] -= 1
 
     if not dec['temp']:

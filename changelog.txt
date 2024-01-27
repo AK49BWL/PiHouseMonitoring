@@ -1,0 +1,213 @@
+01/27/2024
+thermo.py:
+-- Lowered AC Power loss detection threshold to 1000mV from 4000mV
+BUG (UNFIXED): Numerous false power outage detections in the last 3 weeks (possible UPS or power supply issue? Leaning toward UPS) - above change did NOT fix.
+-- Fixed problem of Unicode typing on loading of webvars.json by creating a function to return vars as int if possible, otherwise str
+webvarloader.py:
+-- Added code to type-cast all vars as int before writing to file "webvars.json"
+pitemp.php:
+-- Added comment to AC Power loss/return MySQL logger to show received USB input voltages for debug purposes
+
+01/19/2024
+thermo.py:
+-- Decreased outside temp sensor correction by 3 points
+
+01/13/2024
+thermo.py:
+-- Added ability to change certain variables via my website
+>>> Read file "webvars.json" every minute to update (currently manually-defined) variables
+>>> Current web-changeable vars:
+}}}}} Enable/Disable AC/Heat/HFan/AFan
+}}}}} Global temperature correction override
+}}}}} MCP3008 reference voltage
+webvarloader.py:
+-- Created to read JSON data from a request to my website and write the received data to file "webvars.json"
+pitemp.php:
+-- Added page to change "webvars"
+-- Added function to send JSON of webvars to Pi upon request
+BUG/PROBLEM (FIXED): Requests gets the data and saves everything as Unicode, which does not play nice with ints and floats! Everything has to be typecast! This will be a problem if we want to have vars be dynamically updated rather than having to be individually defined!
+
+01/10/2024
+thermo.py:
+-- MCP3008 reference voltage set to 3.3V
+-- Temperature reads changed from once a minute to every 30 seconds
+>>> Screens being used will override temperature reads to the screen refresh rate of 5 seconds
+
+01/09/2024
+thermo.py:
+-- Moved entire UPS data checking code into a try: block due to failures reading UPS INA219 chips causing the script to crash
+-- Rewrote entire file changing variables and the way timers work
+>>> Main loop now runs every second, only HVAC system checking runs every iteration
+>>> Temperature reads are now once a minute
+>>> UPS full data checking is once every two minutes (with AC power check + battery % check every 10 seconds)
+>>> Data sent to website and logged to file every 5 minutes
+>>> Console now only updates every 10 seconds except when HVAC changes are detected or in the event of errors
+-- Added colorizing to some console output texts
+pitemp.php:
+-- Updated to match new thermo.py variable names
+
+01/07/2024
+thermo.py:
+-- Reconnected MakerHawk UPS and enabled UPS code
+-- Changed MCP3008 reference voltage a few times before remembering I had set up a global voltage correction variable... Set ref voltage back to 2V
+-- Fixed issue with AC power loss detection code, it now works as intended, showing power as off when wall power supply is removed from UPS
+pitemp.php:
+-- Added several lines to display UPS data on index
+
+12/07/2023
+thermo.py:
+-- MCP3008 reference voltage set to 2V
+
+12/05/2023
+thermo.py:
+-- Added more temperature checks to attic fans
+>>> Do not turn on if inside temp is below 68 degrees F
+>>> Turn off if the inside temp drops below 65 degrees F
+
+11/29/2023
+pitemp.php:
+-- Added link to view HVAC system history to index
+
+11/11/2023
+thermo.py:
+-- Added code to get and show system (RPi) uptime and script runtime on the console
+pitemp.php:
+-- Added code to show RPi and script runtime on index
+
+10/11/2023
+pitemp.php
+-- Added page for viewing HVAC system history
+
+10/07/2023
+pitemp.php:
+-- Rewrote code to use ?do=function as I have many of my other pages set up
+thermo.py:
+-- Added temperature checks to attic fans
+>>> Do not turn on if outside temp is below 68 degrees F
+>>> Turn off if the outside temp drops below 65 degrees F regardless of Outside/Attic temp differential
+
+10/01/2023
+pitemp.php:
+-- HVAC system changes will now be logged to MySQL upon receipt from the Pi
+
+09/22/2023
+thermo.py:
+-- Added check for whether UPS is enabled to run any UPS code
+-- Disabled UPS code and removed UPS from system due to bad sensor readings when UPS is connected
+
+09/20/2023
+thermo.py:
+-- Added MakerHawk EP-0136 RPi UPS code using scripts from MakerHawk/52Pi as a baseline
+>>> User-set UPS variables pushed to UPS by script at every startup
+>>> All UPS data is read every loop iteration
+>>> New output added to console and 128x64 OLED screens
+BUG (FIXED): Code written for detecting a power outage and displaying status on the OLED screen does not seem to work. Checking for less than 4000mV from the UPS power supply input connectors, but when the UPS is unplugged from the wall, the readout still shows AC power is on.
+
+09/16/2023
+thermo.py:
+-- Rewrote file logging to log data for ALL enabled temperature sensors and change the file column header accordingly on startup with new/changed sensors
+-- Log rotation will now automatically add the latest column header to the new log file
+-- Cleaned up code and comments
+-- Increased file logging interval to every 5 minutes instead of every 1 minute
+
+09/15/2023
+thermo.py:
+-- Added log rotation for history.csv
+-- Removed ADC voltage values from logging
+-- Moved website URL and UA, auth key from thermo.py to external "codes.json"
+pitemp.php:
+-- Added sensor numbers and Fahrenheit/Celsius readings to output temperature data
+-- Rewrote RPi data receive function to store data via MySQL rather than using pitemp.json (which has now been removed)
+
+09/10/2023
+thermo.py:
+-- Added temp sensor to Laundry Room
+-- Added temp sensor to Kitchen
+
+08/04/2023
+thermo.py:
+-- Added temp sensor to Master Bathroom
+
+07/30/2023
+thermo.py:
+-- Added temp sensor to VR Room
+pitemp.php:
+-- No longer saving print_r output of postdata to file, only JSON of postdata
+
+07/22/2023
+thermo.py:
+-- Added code to switch I/O for a PCA3548A I2C multiplexer
+-- Added code to send script data to SSD1306-compliant 128x64 OLED screens every loop run for 1 minute and then shut them off
+-- Added a button to a GPIO input that can be used to restart OLED screen data sending
+-- Rewrote all instances of sending log data to file and web so logs can only be written ONCE per loop iteration (cuts excessive log file writes and data duplication)
+
+07/20/2023
+thermo.py:
+-- Added RPi CPU temperature to logging and console
+
+07/13/2023
+thermo.py:
+-- Added ability for script to save certain vars to file "dynbkp.json" for loading at startup
+>>> Saves last HVAC system status and last on/off timestamps
+-- Added HVAC system statuses to console output
+
+07/12/2023
+pitemp.php:
+-- Rewrote index to display received data in a more readable format
+
+07/11/2023
+thermo.py:
+-- Added error logging for web sending exceptions
+
+07/09/2023
+thermo.py:
+-- Attic fans now fully controlled by script
+-- Lowered attic fan activation temperature difference to On if Attic > Outside by 5, Off if Attic > Outside by 3 or less
+
+07/08/2023
+thermo.py:
+-- Code optimization and simplification
+-- Added second MCP3008 ADC chip, temperature sensor dict and console output strings updated for up to 16 possible sensors
+
+07/07/2023
+thermo.py:
+-- Now reading HVAC system status as wiring has been added for this functionality
+
+07/03/2023
+thermo.py:
+-- Function written to read status of GPIO pins for HVAC thermostat inputs (but they aren't actually connected yet)
+-- Function written to turn on and off HVAC systems {Heat, A/C, HVAC Blower, Attic Fans}
+-- Wrote code in loop to turn on and off the attic fans based on temperature sensor readings
+>>> currently hardcoded to turn on if attic temp > outside temp by 15 degrees F, off if Attic > Outside by 10 or less degrees F
+-- Added HVAC system status for logging to file "history.csv"
+-- Removed comma from date when logging to file "history.csv"
+
+07/02/2023
+thermo.py:
+-- Added GPIO configuration on startup, updated send-to-website function to send JSON
+pitemp.php:
+-- Updated to receive JSON and write the data to file "pitemp.json"
+-- Also writing postdata in a readable format via print_r to file "pitemp.json"
+
+06/26/2023
+thermo.py:
+-- Wrote functions to send data to my website via a new thread
+-- Created timer to send data to website every 10 minutes
+pitemp.php:
+-- Created to receive data from thermo.py, write all received postdata to file "pitemp.post"
+-- Created basic index to show contents of postdata from file "pitemp.post"
+
+06/25/2023
+thermo.py:
+-- Log to "history.csv" modified to use date format "Jun 25, 2023 16:41:26" instead of "06/25/2023 16:41:26" to allow easier date/time conversions using PHP
+
+06/21/2023
+thermo.py:
+-- Created dict of temperature sensors with error corrections for reading via ADC, using Davis Weather Center as reference for what the sensors SHOULD be reading
+-- Temperature readings now log to file "history.csv" every minute
+
+06/20/2023
+thermo.py:
+-- Initial script created based on https://github.com/adafruit/Adafruit_Python_MCP3008/blob/master/examples/simpletest.py from https://learn.adafruit.com/raspberry-pi-analog-to-digital-converters/mcp3008/
+-- Hooked up four TMP36 temperature sensors via MCP3008 ADC chip (3.3V reference), figured out ADC formula for temp sensors, script now outputs to console temperature info every 5 seconds.
+>>> Sensor 0: Outside temp, Sensor 1: Inside (at Pi), Sensor 2: Living Room HVAC Vent, Sensor 3: Attic
