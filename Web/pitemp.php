@@ -1,4 +1,4 @@
-<?php // pitemp.php v2.0.20240127.1519
+<?php // pitemp.php v2.0.20240210.1924
 include $_SERVER['DOCUMENT_ROOT'].'/includes/include.php';
 // PHP7 does some weird shit with floats and JSON so we need to ini_set precisions. [Done here because of remote hosting possibly ignoring custom php.ini and .htaccess modifications]
 ini_set('precision', -1);
@@ -55,9 +55,12 @@ echo AKfooter();
 function house_index() {
     global $ak, $house, $context;
 
-    // Get the data from MySQL
-    list($data) = mysqli_fetch_row(mysqli_query($ak['mysqli'], "SELECT `value` FROM `$house[db]`.`site` WHERE `setting` = 'piTempReceivedData'"));
-    $data = json_decode($data, 1);
+    // Get the data from MySQL. If we can.
+    if (!$ak['nodb']) {
+		list($data) = mysqli_fetch_row(mysqli_query($ak['mysqli'], "SELECT `value` FROM `$house[db]`.`site` WHERE `setting` = 'piTempReceivedData'"));
+		$data = json_decode($data, 1);
+	} else
+		$data = 'NoMySQL';
 
     if (is_array($data)) {
         // Check if the data is current or possibly thermo.py has died
@@ -76,16 +79,16 @@ function house_index() {
             $noteout[] = $note;
         foreach ($data['backup']['hvac'] as $key => $value) {
             if ($value['stat'])
-                $sysout1[] = $value['name'].' is on since '.$value['laston'].', last off: '.(date('Ymd', strtotime($value['laston'])) == date('Ymd', strtotime($value['lastoff'])) ? date('H:i:s', strtotime($value['lastoff'])) : $value['lastoff']);
+                $sysout1[] = $value['name'].' is <span class="hvon">on</span> since '.$value['laston'].', last off: '.(date('Ymd', strtotime($value['laston'])) == date('Ymd', strtotime($value['lastoff'])) ? date('H:i:s', strtotime($value['lastoff'])) : $value['lastoff']);
             else
-                $sysout2[] = $value['name'].' is off'.($value['enable'] ? '' : ' <span class="hvdis">(disabled)</span>').($value['laston'] && $value['lastoff'] ? ', Last runtime: '.$value['laston'].' to '.(date('Ymd', strtotime($value['laston'])) == date('Ymd', strtotime($value['lastoff'])) ? date('H:i:s', strtotime($value['lastoff'])) : $value['lastoff']) : '');
+                $sysout2[] = $value['name'].' is <span class="hv'.($value['enable'] ? 'off">off' : 'dis">disabled').'</span>'.($value['laston'] && $value['lastoff'] ? ', Last runtime: '.$value['laston'].' to '.(date('Ymd', strtotime($value['laston'])) == date('Ymd', strtotime($value['lastoff'])) ? date('H:i:s', strtotime($value['lastoff'])) : $value['lastoff']) : '');
         }
         foreach ($data['tempdata'] as $tempdata) {
             if (!$tempdata['enable']) {
                 $tskip++;
                 continue;
             }
-            $tempout[] = ($context['user']['is_admin'] && isset($tempdata['ch']) ? 'Sensor '.($tempdata['ch'] ? $tempdata['p'] + 8 : $tempdata['p']).': ' : '').$tempdata['name'].': '.$tempdata['temp']['f'].'&#51704;F, '.$tempdata['temp']['c'].'&#51704;C';
+            $tempout[] = ($context['user']['is_admin'] && isset($tempdata['ch']) ? 'Sensor '.($tempdata['ch'] ? $tempdata['p'] + 8 : $tempdata['p']).': ' : '').$tempdata['name'].': '.$tempdata['temp']['f'].'&#176;F, '.$tempdata['temp']['c'].'&#176;C';
         }
         $return = '<br />
 <span class="notice">'.date('F j, Y H:i:s', strtotime($data['date']['s'])).'</span><br />'.($oldData ? '
@@ -103,7 +106,7 @@ Last recorded AC power loss: '.$data['backup']['powerlastoff'].', '.($data['back
 <span class="notice2">Temperatures:</span><br />
 '.implode ('<br />
 ', $tempout).'<br />'.($data['ups']['enable'] ? '
-System UPS Battery: '.round((($data['ups']['data']['main']['battTempC'] * 1.8) + 32), 1).'&#51704;F, '.$data['ups']['data']['main']['battTempC'].'&#51704;C<br />' : '').($tskip ? '
+System UPS Battery: '.round((($data['ups']['data']['main']['battTempC'] * 1.8) + 32), 1).'&#176;F, '.$data['ups']['data']['main']['battTempC'].'&#176;C<br />' : '').($tskip ? '
 '.$tskip.' sensors skipped due to not being in use<br /><br />
 <a href="pitemp.php?do=about">About this page</a><br />' : '');
 
@@ -273,6 +276,8 @@ function house_setWebVars() {
         foreach ($_POST['set'] as $set) {
             if ($set['setting'] == 'lastWebChange')
                 $set['value'] = time(); // This should always be as up-to-date as possible to reflect the latest change
+            if ($set['setting'] == 'lastWebChangeStr')
+                $set['value'] = date('M j Y H:i:s');
             $setAr[] = array(
                 'setting' => (!empty($set['setting']) ? $set['setting'] : 0),
                 'value' => (!empty($set['value']) ? $set['value'] : 0),
@@ -352,10 +357,14 @@ function house_setWebVars() {
 
 function house_loadWebVars() {
     global $ak, $house;
-    $query = mysqli_query($ak['mysqli'], "SELECT * FROM `$house[db]`.`house_webvars`");
-    while ($s = mysqli_fetch_assoc($query))
-        $data[$s['setting']] = $s['value'];
-    $data['data'] = 'good'; // Just so webvarloader.py can verify the data is in fact usable!
+    // NoMySQL? No data.
+    if (!$ak['nodb']) {
+        $query = mysqli_query($ak['mysqli'], "SELECT * FROM `$house[db]`.`house_webvars`");
+        while ($s = mysqli_fetch_assoc($query))
+            $data[$s['setting']] = $s['value'];
+        $data['data'] = 'good'; // Just so webvarloader.py can verify the data is in fact usable!
+    } else
+        $data['data'] = 'NoMySQL'; // But it's not usable because there is no data.
     die(json_encode($data));
 }
 

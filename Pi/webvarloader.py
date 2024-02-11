@@ -1,7 +1,7 @@
 # Pulls data from website to update variables used by thermo.py
 # This script has been written for Python 2.7
 # Author: AK49BWL
-# Updated: 01/27/2024 14:45
+# Updated: 02/07/2024 18:15
 
 import datetime
 import json
@@ -12,18 +12,16 @@ import time
 webauth = json.loads(open('codes.json', 'r').read())
 
 while 1:
+    ct = datetime.datetime.now().strftime("%b %d %Y %H:%M:%S")
     try:
         r = requests.get(webauth['lwvURL'], timeout=(10,10), headers={'User-Agent': webauth['ua'], 'Content-Type': 'application/json'})
     except requests.exceptions.ConnectionError:
-        print('\x1b[1;37;41mConnection error - Check Pi connectivity\x1b[0m')
+        print('\x1b[1;37;41m' + ct + ' -- Connection error - Check Pi connectivity\x1b[0m')
     except requests.exceptions.Timeout:
-        print('\x1b[1;33;41mRequest timed out trying to get WebVars from website\x1b[0m')
+        print('\x1b[1;33;41m' + ct + ' -- Request timed out trying to get WebVars from website\x1b[0m')
     else:
         try:
             js = r.json()
-        except (requests.exceptions.InvalidJSONError, TypeError) as exceptionerror:
-            print("\x1b[1;33;41mInvalid JSON - %s\x1b[0m" % (exceptionerror))
-        else:
             if js['data'] == 'good':
                 old = json.loads(open('webvars.json', 'r').read())
                 if not int(js['lastWebChange']) == int(old['lastWebChange']): # Let's not bother updating if nothing's changed.
@@ -31,9 +29,11 @@ while 1:
                     f = open("webvars.json", "w")
                     f.write(str(json.dumps(toStr)))
                     f.close()
-                    print('\x1b[1;32;42mReloaded WebVars successfully\x1b[0m')
+                    print('\x1b[1;32;42m' + ct + ' -- Reloaded WebVars successfully\x1b[0m')
                 else:
-                    print('WebVars unchanged')
+                    print(ct + ' -- WebVars unchanged')
             else:
-                print("\x1b[1;33;41mThis JSON data sucks!\x1b[0m")
+                print('\x1b[1;33;41m' + ct + ' -- This JSON data sucks!\x1b[0m')
+        except (requests.exceptions.InvalidJSONError, TypeError, NameError) as exceptionerror:
+            print('\x1b[1;33;41m' + ct + ' -- Error - ' + exceptionerror + '%s\x1b[0m')
     time.sleep(300)
