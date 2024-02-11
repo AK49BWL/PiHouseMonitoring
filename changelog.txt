@@ -1,3 +1,17 @@
+02/11/2024
+thermo.py:
+-- MakerHawk UPS+ failed, UPS code disabled and UPS disconnected
+-- Moved all MakerHawk UPS+ code to MakerHawkUPS.py
+MakerHawkUPS.py:
+-- Code from thermo.py moved here in case I need it in the future
+daviswx.py:
+-- Created to read data from my Davis Vantage Pro 2 Weather Center and send the output to my website
+-- Much of the code is based on WOSPi (http://www.annoyingdesigns.com/wospi/), modified to suit my own needs
+-- Loop runs every 5 minutes
+pitemp.php:
+-- Added functions to receive Davis weather center data from daviswx.py
+-- Updated index to feature most interesting weather data info
+
 02/10/2024
 thermo.py:
 -- Moved file loads to top
@@ -25,7 +39,7 @@ pitemp.php:
 01/27/2024
 thermo.py:
 -- Lowered AC Power loss detection threshold to 1000mV from 4000mV
-BUG (FIXED 02/05/2024?): Numerous false power outage detections in the last 3 weeks (possible UPS or power supply issue? Leaning toward UPS) - above change did NOT fix.
+BUG (FIXED 02/05/2024): Numerous false power outage detections in the last 3 weeks (possible UPS or power supply issue? Leaning toward UPS) - above change did NOT fix.
 -- Fixed problem of Unicode typing on loading of webvars.json by creating a function to return vars as int if possible, otherwise str
 webvarloader.py:
 -- Added code to type-cast all vars as int before writing to file "webvars.json"

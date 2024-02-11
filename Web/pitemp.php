@@ -1,4 +1,4 @@
-<?php // pitemp.php v2.0.20240210.1924
+<?php // pitemp.php v2.0.20240211.1221
 include $_SERVER['DOCUMENT_ROOT'].'/includes/include.php';
 // PHP7 does some weird shit with floats and JSON so we need to ini_set precisions. [Done here because of remote hosting possibly ignoring custom php.ini and .htaccess modifications]
 ini_set('precision', -1);
@@ -18,10 +18,12 @@ else
 // Allowed actions
 $doarr = array(
     'index' => array( 'title' => 'House Temperatures and Statuses' ),
-    'logFromPi' => array( 'title' => '' ), // Triggered only by my RPi sending data to the site and returns no output
+    'logFromPi' => array( 'title' => '' ), // Triggered only by my RPi sending HVAC and temp data to the site and returns no output
+	'logWxFromPi' => array( 'title' => '' ), // Triggered only by my RPi sending weather data to the site and returns no output
     'loadWebVars' => array( 'title' => '' ), // Triggered by RPi request and returns JSON data containing values changeable on the website
     'setWebVars' => array( 'title' => 'Set thermo.py Values' ), // For changing values to be loaded by the RPi remotely
     'viewSysHistory' => array( 'title' => 'House HVAC System History' ), // Shows HVAC system switching history
+	'viewAllWeatherData' => array( 'title' => 'Current Davis Weather Center Data' ), // <-- This
     'about' => array( 'title' => 'House Status Info' ), // About the system and how it works and stuff
 
 /* More?
@@ -59,6 +61,8 @@ function house_index() {
     if (!$ak['nodb']) {
 		list($data) = mysqli_fetch_row(mysqli_query($ak['mysqli'], "SELECT `value` FROM `$house[db]`.`site` WHERE `setting` = 'piTempReceivedData'"));
 		$data = json_decode($data, 1);
+		list($wxData) = mysqli_fetch_row(mysqli_query($ak['mysqli'], "SELECT `value` FROM `$house[db]`.`site` WHERE `setting` = 'piWxReceivedData'"));
+		$wxData = json_decode($wxData, 1);
 	} else
 		$data = 'NoMySQL';
 
@@ -81,7 +85,7 @@ function house_index() {
             if ($value['stat'])
                 $sysout1[] = $value['name'].' is <span class="hvon">on</span> since '.$value['laston'].', last off: '.(date('Ymd', strtotime($value['laston'])) == date('Ymd', strtotime($value['lastoff'])) ? date('H:i:s', strtotime($value['lastoff'])) : $value['lastoff']);
             else
-                $sysout2[] = $value['name'].' is <span class="hv'.($value['enable'] ? 'off">off' : 'dis">disabled').'</span>'.($value['laston'] && $value['lastoff'] ? ', Last runtime: '.$value['laston'].' to '.(date('Ymd', strtotime($value['laston'])) == date('Ymd', strtotime($value['lastoff'])) ? date('H:i:s', strtotime($value['lastoff'])) : $value['lastoff']) : '');
+                $sysout2[] = $value['name'].' is <span class="hv'.($data['setting']['hvac'][$key] ? 'off">off' : 'dis">disabled').'</span>'.($value['laston'] && $value['lastoff'] ? ', Last runtime: '.$value['laston'].' to '.(date('Ymd', strtotime($value['laston'])) == date('Ymd', strtotime($value['lastoff'])) ? date('H:i:s', strtotime($value['lastoff'])) : $value['lastoff']) : '');
         }
         foreach ($data['tempdata'] as $tempdata) {
             if (!$tempdata['enable']) {
@@ -107,19 +111,26 @@ Last recorded AC power loss: '.$data['backup']['powerlastoff'].', '.($data['back
 '.implode ('<br />
 ', $tempout).'<br />'.($data['ups']['enable'] ? '
 System UPS Battery: '.round((($data['ups']['data']['main']['battTempC'] * 1.8) + 32), 1).'&#176;F, '.$data['ups']['data']['main']['battTempC'].'&#176;C<br />' : '').($tskip ? '
-'.$tskip.' sensors skipped due to not being in use<br /><br />
-<a href="pitemp.php?do=about">About this page</a><br />' : '');
+'.$tskip.' sensors skipped due to not being in use<br />
+<span class="notice2">Weather Center (Updated '.$wxData['now_s'].'):</span><br />
+Outside Temp, Humidity: '.$wxData['OUTTEMP_F'].'&#176;F, '.$wxData['OUTHUM_P'].'%'.($wxData['HINDEX_F'] > $wxData['OUTTEMP_F']+3 ? ' -- Heat Index: '.$wxData['HINDEX_F'].'&#176;F' : '').'<br />
+Inside Temp, Humidity: '.$wxData['INTEMP_F'].'&#176;F, '.$wxData['INHUM_P'].'%<br />
+Wind (10 minute average): '.$wxData['WINDDIR'].'&#176; '.$wxData['WIND_CARDINAL'].' at '.$wxData['AVGWIND10_MPH'].'mph '.($wxData['GUST10_MPH'] > 0 ? 'gusting to '.$wxData['GUST10_MPH'].'mph' : '').($wxData['WC_F'] < $wxDATA['OUTTEMP_F']-3 ? ' -- Wind Chill: '.$wxData['WC_F'].'&#176;F' : '').'<br />'.($wxData['RAINFALL24H_IN'] ? '
+Rain Inches (last 15min, 1hr, 24hr): '.$wxData['RAINFALL15_IN'].', '.$wxData['RAINFALL60_IN'].', '.$wxData['RAINFALL24H_IN'].($wxData['RAINRATE_INHR'] ? ', currently raining at '.$wxData['RAINRATE_INHR'].'in/hr' : '').'<br />' : '').'
+Rain Today: '.$wxData['DAYRAIN_IN'].'in -- This month: '.$wxData['MONTHRAIN_IN'].'in -- This year: '.$wxData['YEARRAIN_IN'].'in<br />
+<br /><a href="pitemp.php?do=about">About this page</a><br />' : '');
 
     } else
         $return = 'Something really broke.<br />';
     if (isset($_GET['showfile']) && $context['user']['is_admin']) {
         ksortRec($data);
-        $return .= '<br /><br />'.nl2br(str_replace(' ', '&nbsp', print_r($data, 1)));
+        $return .= '<br /><br />'.nl2br(str_replace(' ', '&nbsp', print_r(array($data, $wxData), 1)));
     }
     return array( 'data' => $return );
 }
 
 function house_about() {
+	global $ak;
     $return = '<br />
 <span class="box">Data provided by my Raspberry Pi 3B+ microcontroller running my very own Python script for systems monitoring<br />
 Data updates every 5 minutes OR when a system status changes<br />
@@ -128,13 +139,13 @@ Custom circuitry includes:<br />
 -- 24v relays from a receiver amplifier activated by my HVAC system thermostat, relays activate GPIO pins on the Pi for reading system status<br />
 -- optocoupler relay module to switch 110vAC power to my attic fans based on temperature readings<br />
 -- MakerHawk UPS+ EP-0136 battery backup module for keeping the Pi running and detecting power outages<br /></span><br />
-<img src="/img/pi.jpg" alt="Pi" title="Pi" />';
-    // Further data such as indoor and outdoor humidity, rain rate, wind speed and direction, heat index, and more is provided by a Davis Vantage Pro 2 Weather Center via Serial Data (using <a href="https://www.annoyingdesigns.com/wospi/" target="_blank">WOSPi Python library</a>)';
+Further data such as indoor and outdoor humidity, rain rate, wind speed and direction, heat index, and more is provided by a Davis Vantage Pro 2 Weather Center via Serial Data (using code from <a href="https://www.annoyingdesigns.com/wospi/" target="_blank">WOSPi Python library</a>)<br />
+<img src="'.$ak['url'].'/img/pi.jpg" alt="Pi" title="Pi" />';
     return array( 'data' => $return );
 }
 
 function house_logFromPi() {
-    global $ak, $house, $context;
+    global $ak, $house;
 
     // Has any usable data been sent?
     if (empty($_SERVER['CONTENT_LENGTH'])) {
@@ -207,12 +218,36 @@ function house_logFromPi() {
         if (!$result)
             AKerr('fuck me again! '.mysqli_error($ak['mysqli']));
     }
-    AKfooter(1);
-    die; // This doesn't need any output returned to the source.
+    die(AKfooter(1)); // This doesn't need any output returned to the source.
+}
+
+function house_logWxFromPi() { // A lot simpler than the HVAC stuff because we're not actually logging anything lol
+    global $ak, $house;
+
+    // Has any usable data been sent?
+    if (empty($_SERVER['CONTENT_LENGTH'])) {
+        die; // Nope
+    }
+    // Gotta do some JSON stuff.
+    $post = json_decode(file_get_contents("php://input"), 1);
+    if (!isset($post['auth']) || $post['auth'] !== $ak['auth'])
+        die(AKerr('House monitoring RPi sent data to website without auth key', 'fatal')); // No verify. Roflmao. You tried, you died.
+
+    // NoMySQL? NoMySQL. Send this interation to file and forget the rest.
+    if ($ak['nodb'])
+        die(AKerr('Unable to log weather data due to MySQL outage', 'fatal')); // Nah just forget it completely.
+
+    // Store the received data, minus the auth key...
+    unset($post['auth']);
+    $ins = mysqli_real_escape_string($ak['mysqli'], json_encode($post));
+    $result = mysqli_query($ak['mysqli'], "REPLACE INTO `$house[db]`.`site` (`setting`, `value`) VALUES ('piWxReceivedData', '$ins')");
+    if (!$result)
+        die(AKerr(mysqli_error($ak['mysqli'])));
+    die(AKfooter(1)); // This doesn't need any output returned to the source.
 }
 
 function house_viewSysHistory() {
-    global $ak, $house, $context;
+    global $ak, $house;
 
     $query = mysqli_query($ak['mysqli'], "SELECT * FROM `$house[db]`.`house_hvacStatusLog` ORDER BY `date` DESC LIMIT 500");
     while ($h = mysqli_fetch_assoc($query)) {
@@ -260,6 +295,14 @@ function house_viewSysHistory() {
 </table>';
 
     return array( 'data' => $html ); // .'<br />'.nl2br(str_replace(' ', '&nbsp', print_r(array('data' => $data, 'output' => $output), 1)))
+}
+
+function house_viewAllWeatherData() {
+	global $ak, $house, $context;
+	list($wxData) = mysqli_fetch_row(mysqli_query($ak['mysqli'], "SELECT `value` FROM `$house[db]`.`site` WHERE `setting` = 'piWxReceivedData'"));
+	$wxData = json_decode($wxData, 1);
+    ksort($wxData);
+	return array( 'data' => nl2br(print_r($wxData,1)));
 }
 
 // Change remote RPi variables
