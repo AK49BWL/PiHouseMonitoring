@@ -2,7 +2,7 @@
 # This script has been written for Python 2.7
 # This script uses content from WOSPi (http://www.annoyingdesigns.com/wospi/) modified to suit my own needs
 # Author: AK49BWL
-# Updated: 02/11/2024 12:07
+# Updated: 02/11/2024 17:18
 
 import datetime
 import json
@@ -12,10 +12,6 @@ import struct
 import threading
 import time
 
-setting = {
-    'maxtry': 5, # Max number of attempts to wake console
-    'int': 300, # Main loop interval in seconds
-}
 com = { # Serial config
     'port': '/dev/ttyUSB0',
     'baud': 19200,
@@ -25,6 +21,7 @@ com = { # Serial config
     'timeout': 3,
     'onoff': 0,
     'delay': 0.5,
+    'maxtry': 5, # Max number of attempts to wake console
 }
 
 cc = { # Console text coloring
@@ -57,12 +54,12 @@ def openWxComm():
     if not wx:
         return 0
     wake = 0
-    for attemptNo in range(1, setting['maxtry'] + 1):
-        print('Waking console, attempt %s of %s' % (attemptNo, setting['maxtry']))
+    for attemptNo in range(1, com['maxtry'] + 1):
+        print('Waking console, attempt %s of %s' % (attemptNo, com['maxtry']))
         wx.write('\n')
         if wx.inWaiting() == 2:
             dummyBuffer = wx.read(wx.inWaiting())
-            print('Console is awake after %s %s' % (attemptNo, 'try' if attemptNo == 1 else 'tries'))
+            print(cc['suc'] + 'Console is awake after ' + str(attemptNo) + ' ' + ('try' if attemptNo == 1 else 'tries') + cc['e'])
             wake = 1
             wxWrite('TEST')
             time.sleep(com['delay'])
@@ -75,7 +72,7 @@ def openWxComm():
     if wake:
         print('The console is responding')
     else:
-        print('Unable to wake up the console (is cable connected?)')
+        print(cc['err'] + 'Unable to wake up the console (is cable connected?)' + cc['e'])
         wx.close()
         wx = 0
     return wx
@@ -123,20 +120,20 @@ def readWxData():
     # Loop 1
     wxWrite('LOOP 1')
     loopSize = i = wx.inWaiting()
-    print('Read LOOP packet from console, received %d bytes' % (i))
     if loopSize != 100:
-        print('Aborting, LOOP packet size <> 100')
+        print(cc['err'] + 'Aborting, LOOP1 packet size <> 100' + cc['e'])
         return 0
     else:
+        print('Read LOOP1 packet from console, received %d bytes' % (i))
         s = q = wx.read(i)
         s = s[3:]
         wxData['CRC_PAD'] = struct.unpack_from('H', q, 95)[0]
         wxData['CRC-CALC'] = CRC(q[1:101])
         if wxData['CRC-CALC'] == 0:
-            print('LOOP packet CRC is verified')
+            print('LOOP1 packet CRC is verified')
             L1 = q[1:]
         else:
-            print('No LOOP packet or invalid LOOP packet CRC')
+            print(cc['err'] + 'No LOOP1 packet or invalid CRC' + cc['e'])
             return 0
         j = wxData['BAROTREND'] = struct.unpack_from('B', s, 1)[0]
         t = 'Barometric pressure is '
@@ -178,7 +175,7 @@ def readWxData():
         wxData['WIND_CARDINAL'] = getCardinalDirection(int(t))
         wxData['OUTHUM_P'] = struct.unpack_from('B', s, 31)[0]
         if wxData['OUTHUM_P'] > 100:
-            print('Value out of range (manually verify console value) : OUTHUM_P = %d' % (wxData['OUTHUM_P']))
+            print(cc['cer'] + 'Value out of range (manually verify console value) : OUTHUM_P = ' + str(wxData['OUTHUM_P']) + cc['e'])
             wxData['OUTHUM_P'] = -1
             wxData['DATAERROR'] = True
         wxData['RAINRATE_INHR'] = struct.unpack_from('H', s, 39)[0] * 0.01
@@ -222,9 +219,8 @@ def readWxData():
         wxWrite('LPS 2 1')
         time.sleep(com['delay'])
         loopSize = i = wx.inWaiting()
-        print('Read LOOP 2 packet from console, received %d bytes' % (i))
         if i != 100:
-            print('Aborting, LOOP2 packet size <> 100')
+            print(cc['err'] + 'Aborting, LOOP2 packet size <> 100' + cc['e'])
             return 0
         print('Read LOOP2 packet from console, received %d bytes' % (loopSize))
         s = q = wx.read(i)
@@ -264,7 +260,7 @@ def readWxData():
             wxData['THSW_F'] = struct.unpack_from('H', s, 37)[0] / 1.0
             wxData['HINDEX_F'] = struct.unpack_from('H', s, 33)[0] / 1.0
         else:
-            print('No LOOP2 packet or invalid LOOP2 packet CRC')
+            print(cc['err'] + 'No LOOP2 packet or invalid CRC' + cc['e'])
             return 0
         return 1
 
@@ -362,13 +358,13 @@ def unpackTime(theString, offset):
 # Load Webdata auth stuff
 webauth = json.loads(open('codes.json', 'r').read())
 # Set up the website request threading system
-def to_web(senddata):
+def wxtoweb(senddata):
     try:
         r = requests.post(webauth['wxdURL'], data=json.dumps(senddata), timeout=(10,10), headers={'User-Agent': webauth['ua'], 'Content-Type': 'application/json'})
     except requests.exceptions.ConnectionError:
-        print(cc['cer'] + 'Connection error - Check Pi connectivity' + cc['e'])
+        print(cc['cer'] + 'Connection error sending wxData to the website - Check Pi connectivity' + cc['e'])
     except requests.exceptions.Timeout:
-        print(cc['err'] + 'Request timed out trying to send data to the website' + cc['e'])
+        print(cc['err'] + 'Request timed out trying to send wxData to the website' + cc['e'])
     else:
         print(cc['snt'] + 'Data sent to website! Response: ' + str(r.status_code) + cc['e'])
 
@@ -386,7 +382,7 @@ while 1:
         thing = readWxData()
         if thing: # Everything seems to be working, send it to the website
             wxData['auth'] = webauth['auth']
-            to_web(wxData)
+            wxtoweb(wxData)
     except (serial.SerialException, TypeError, NameError) as e:
         print('Broke: ' + str(e))
-    time.sleep(setting['int'])
+    time.sleep(300)

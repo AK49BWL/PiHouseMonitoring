@@ -1,4 +1,4 @@
-<?php // pitemp.php v2.0.20240211.1221
+<?php // pitemp.php v2.0.20240211.1735
 include $_SERVER['DOCUMENT_ROOT'].'/includes/include.php';
 // PHP7 does some weird shit with floats and JSON so we need to ini_set precisions. [Done here because of remote hosting possibly ignoring custom php.ini and .htaccess modifications]
 ini_set('precision', -1);
@@ -19,11 +19,11 @@ else
 $doarr = array(
     'index' => array( 'title' => 'House Temperatures and Statuses' ),
     'logFromPi' => array( 'title' => '' ), // Triggered only by my RPi sending HVAC and temp data to the site and returns no output
-	'logWxFromPi' => array( 'title' => '' ), // Triggered only by my RPi sending weather data to the site and returns no output
+    'logWxFromPi' => array( 'title' => '' ), // Triggered only by my RPi sending weather data to the site and returns no output
     'loadWebVars' => array( 'title' => '' ), // Triggered by RPi request and returns JSON data containing values changeable on the website
     'setWebVars' => array( 'title' => 'Set thermo.py Values' ), // For changing values to be loaded by the RPi remotely
     'viewSysHistory' => array( 'title' => 'House HVAC System History' ), // Shows HVAC system switching history
-	'viewAllWeatherData' => array( 'title' => 'Current Davis Weather Center Data' ), // <-- This
+    'viewAllWeatherData' => array( 'title' => 'Current Davis Weather Center Data' ), // <-- This
     'about' => array( 'title' => 'House Status Info' ), // About the system and how it works and stuff
 
 /* More?
@@ -59,12 +59,12 @@ function house_index() {
 
     // Get the data from MySQL. If we can.
     if (!$ak['nodb']) {
-		list($data) = mysqli_fetch_row(mysqli_query($ak['mysqli'], "SELECT `value` FROM `$house[db]`.`site` WHERE `setting` = 'piTempReceivedData'"));
-		$data = json_decode($data, 1);
-		list($wxData) = mysqli_fetch_row(mysqli_query($ak['mysqli'], "SELECT `value` FROM `$house[db]`.`site` WHERE `setting` = 'piWxReceivedData'"));
-		$wxData = json_decode($wxData, 1);
-	} else
-		$data = 'NoMySQL';
+        list($data) = mysqli_fetch_row(mysqli_query($ak['mysqli'], "SELECT `value` FROM `$house[db]`.`site` WHERE `setting` = 'piTempReceivedData'"));
+        $data = json_decode($data, 1);
+        list($wxData) = mysqli_fetch_row(mysqli_query($ak['mysqli'], "SELECT `value` FROM `$house[db]`.`site` WHERE `setting` = 'piWxReceivedData'"));
+        $wxData = json_decode($wxData, 1);
+    } else
+        $data = 'NoMySQL';
 
     if (is_array($data)) {
         // Check if the data is current or possibly thermo.py has died
@@ -116,8 +116,8 @@ System UPS Battery: '.round((($data['ups']['data']['main']['battTempC'] * 1.8) +
 Outside Temp, Humidity: '.$wxData['OUTTEMP_F'].'&#176;F, '.$wxData['OUTHUM_P'].'%'.($wxData['HINDEX_F'] > $wxData['OUTTEMP_F']+3 ? ' -- Heat Index: '.$wxData['HINDEX_F'].'&#176;F' : '').'<br />
 Inside Temp, Humidity: '.$wxData['INTEMP_F'].'&#176;F, '.$wxData['INHUM_P'].'%<br />
 Wind (10 minute average): '.$wxData['WINDDIR'].'&#176; '.$wxData['WIND_CARDINAL'].' at '.$wxData['AVGWIND10_MPH'].'mph '.($wxData['GUST10_MPH'] > 0 ? 'gusting to '.$wxData['GUST10_MPH'].'mph' : '').($wxData['WC_F'] < $wxDATA['OUTTEMP_F']-3 ? ' -- Wind Chill: '.$wxData['WC_F'].'&#176;F' : '').'<br />'.($wxData['RAINFALL24H_IN'] ? '
-Rain Inches (last 15min, 1hr, 24hr): '.$wxData['RAINFALL15_IN'].', '.$wxData['RAINFALL60_IN'].', '.$wxData['RAINFALL24H_IN'].($wxData['RAINRATE_INHR'] ? ', currently raining at '.$wxData['RAINRATE_INHR'].'in/hr' : '').'<br />' : '').'
-Rain Today: '.$wxData['DAYRAIN_IN'].'in -- This month: '.$wxData['MONTHRAIN_IN'].'in -- This year: '.$wxData['YEARRAIN_IN'].'in<br />
+Rain Inches (last 15min, 1hr, 24hr): '.round($wxData['RAINFALL15_IN'], 2).', '.round($wxData['RAINFALL60_IN'], 2).', '.round($wxData['RAINFALL24H_IN'], 2).($wxData['RAINRATE_INHR'] ? ', currently raining at '.round($wxData['RAINRATE_INHR'], 2).'in/hr' : '').'<br />' : '').'
+Rain Today: '.round($wxData['DAYRAIN_IN'], 2).'in -- This month: '.round($wxData['MONTHRAIN_IN'], 2).'in -- This year: '.round($wxData['YEARRAIN_IN'], 2).'in<br />
 <br /><a href="pitemp.php?do=about">About this page</a><br />' : '');
 
     } else
@@ -130,7 +130,7 @@ Rain Today: '.$wxData['DAYRAIN_IN'].'in -- This month: '.$wxData['MONTHRAIN_IN']
 }
 
 function house_about() {
-	global $ak;
+    global $ak;
     $return = '<br />
 <span class="box">Data provided by my Raspberry Pi 3B+ microcontroller running my very own Python script for systems monitoring<br />
 Data updates every 5 minutes OR when a system status changes<br />
@@ -298,11 +298,11 @@ function house_viewSysHistory() {
 }
 
 function house_viewAllWeatherData() {
-	global $ak, $house, $context;
-	list($wxData) = mysqli_fetch_row(mysqli_query($ak['mysqli'], "SELECT `value` FROM `$house[db]`.`site` WHERE `setting` = 'piWxReceivedData'"));
-	$wxData = json_decode($wxData, 1);
+    global $ak, $house, $context;
+    list($wxData) = mysqli_fetch_row(mysqli_query($ak['mysqli'], "SELECT `value` FROM `$house[db]`.`site` WHERE `setting` = 'piWxReceivedData'"));
+    $wxData = json_decode($wxData, 1);
     ksort($wxData);
-	return array( 'data' => nl2br(print_r($wxData,1)));
+    return array( 'data' => nl2br(print_r($wxData,1)));
 }
 
 // Change remote RPi variables

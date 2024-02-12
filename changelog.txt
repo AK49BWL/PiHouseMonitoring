@@ -2,6 +2,7 @@
 thermo.py:
 -- MakerHawk UPS+ failed, UPS code disabled and UPS disconnected
 -- Moved all MakerHawk UPS+ code to MakerHawkUPS.py
+-- integrated webvarloader.py code with updatesettings()
 MakerHawkUPS.py:
 -- Code from thermo.py moved here in case I need it in the future
 daviswx.py:
@@ -11,6 +12,8 @@ daviswx.py:
 pitemp.php:
 -- Added functions to receive Davis weather center data from daviswx.py
 -- Updated index to feature most interesting weather data info
+webvarloader.py:
+-- Removed as code has been moved to thermo.py and this file is no longer needed
 
 02/10/2024
 thermo.py:

@@ -2,7 +2,7 @@
 # data to SSD1306-compliant displays, and log data to file + send to my website
 # This script has been written for Python 2.7
 # Author: AK49BWL
-# Updated: 02/11/2024 10:12
+# Updated: 02/11/2024 18:21
 
 # TO DO: Create AC power loss reaction function -- Auto-shutdown pi and UPS unit on power loss after 30 minutes. UPS can probably last much longer but meh.
 # Enable the UPS shutdown timer, force-send data to web and backup, send command to system to shut down, then exit the script.
@@ -35,6 +35,7 @@ cc = { # Console text coloring
     'e': '\x1b[0m',
     'off': '\x1b[1;31;40mOff\x1b[0m',
     'on': '\x1b[1;32;40mOn\x1b[0m',
+    'dis': '\x1b[1;37;41mDisabled\x1b[0m',
     'snt': '\x1b[1;32;42m',
     'fh': '\x1b[1;33;40m',
     'err': '\x1b[1;33;41m',
@@ -43,7 +44,7 @@ cc = { # Console text coloring
     'suc': '\x1b[1;36;42m',
     'fbu': '\x1b[1;36;46m',
     'cer': '\x1b[1;37;41m',
-    'ups': '\x1b[1;37;42m'
+    'ups': '\x1b[1;37;42m',
 }
 # Files
 authfile = 'codes.json' # PASSWORDS n stuff
@@ -64,14 +65,6 @@ try:
 except NameError:
     print(cc['err'] + 'Error loading backup file: No data or data corrupt, resetting values' + cc['e'])
     bkp = 0
-try:
-    if wvl['data'] == 'good':
-        print(cc['suc'] + 'Loaded WebVars file, last saved ' + wvl['lastWebChangeStr'] + cc['e']) # Variables will use values from this file instead of defaults
-    else:
-        wvl = 0
-except NameError:
-    print(cc['err'] + 'Error loading webvar file: No data or data corrupt, resetting values' + cc['e'])
-    wvl = 0
 
 # Current date/time array (UnixTime, string, month old and new for log rotation, script start unixtime)
 now = { 'u': 0, 's': '', 'om': 0 if not bkp else bkp['om'], 'nm': 0, 'scr': int(time.mktime(datetime.datetime.now().timetuple())) }
@@ -88,44 +81,6 @@ backup = {
     'lastWebChange': 0 if not bkp else bkp['lastWebChange']
 }
 
-# Set up reloadable vars
-def reloadsettings():
-    global wvl
-    try:
-        if now['u']: # Don't reload webvars file if we're just starting up, since it's already been loaded above
-            wvl = json.loads(open(wvfile, 'r').read())
-        if not now['u'] or (int(wvl['lastWebChange']) and not int(wvl['lastWebChange']) == int(backup['lastWebChange'])): # Let's update some vars!
-            wv = dict([(str(k), str_or_int(v)) for k, v in wvl.items()]) # Take care of variable type-casting
-            global setting
-            setting = {
-                'hvac': { # 1 = Enable, 0 = Disable
-                    'ac': 1 if not wv else wv['enable_ac'],
-                    'heat': 1 if not wv else wv['enable_heat'],
-                    'hfan': 1 if not wv else wv['enable_hfan'],
-                    'afan': 1 if not wv else wv['enable_afan']
-                },
-                'tempRefVolt': 330 if not wv else wv['tempRefVolt'], # 3.3 volt MCP3008 reference, no need to change unless we're vastly changing the hardware ref voltage.
-                'tempGlobalCorr': 0 if not wv else wv['tempGlobalCorr'], # Change this instead if we need to fine-tune readings.
-                'lastWebChange': 0 if not wv else wv['lastWebChange'],
-                'tempLow': 65 if not wv else wv['tempLow'], # Low temperature to turn on Heater
-                'tempHigh': 75 if not wv else wv['tempHigh'], # High temperature to turn on A/C
-                'tempHyst': 2 if not wv else wv['tempHyst'] # Temperature Hysteresis
-            }
-            backup['lastWebChange'] = wv['lastWebChange']
-            if now['u']:
-                global notes, notesi, do_log
-                print(cc['suc'] + 'Reloaded webvars last saved ' + wv['lastWebChangeStr'] + cc['e'])
-                log_stat(to_file = 1, customtext = 'Reloaded webvars last saved ' + wv['lastWebChangeStr'])
-                notes[notesi] = 'Reloaded webvars last saved ' + wv['lastWebChangeStr']
-                notesi += 1
-                do_log = 1
-        else:
-            print('WebVars loaded but unchanged from ' + str(wvl['lastWebChangeStr']))
-    except (NameError, OSError) as exceptionerror: # Problem? Forget it. Everything is broken.
-        print(cc['err'] + 'Error loading webvars, reusing existing values - ' + str(exceptionerror) + cc['e'])
-        breakstuff = setting # Kill us completely if setting is not defined because without it, nothing will work.
-        log_stat(to_file = 1, customtext = 'Error loading webvars, reusing existing values - ' + str(exceptionerror))
-
 # Timers and decrement counters - All timers are in seconds
 timer = {
     'cmd': 10, # Main output to console
@@ -135,7 +90,7 @@ timer = {
     'shutdown': 1800, # Wait before shutting down Pi in the event of a power outage --- If power isn't back in 30 minutes, go ahead and shut 'er down.
     'file': 300, # File writes for temp/HVAC data
     'web': 300, # Website data sends
-    'loadwebvars': 60, # Update variables from website
+    'loadwebvars': 300, # Update variables from website and repopulate settings dict
     'chkattic': 300, # Checking attic temp for fan toggle
     'display': 60, # Display screens timeout
     'disp_upd': 5, # Display screens update
@@ -148,7 +103,7 @@ dec = { # Decrement vars for timers
     'shutdown': timer['shutdown'], # We don't want this to start counting down unless there's a power outage
     'file': 0,
     'web': 0,
-    'loadwebvars': 0,
+    'loadwebvars': timer['loadwebvars'], # First run is done before loop, subsequent runs will be in a sub-thread
     'chkattic': 0,
     'display': timer['display'],
     'disp_upd': 0
@@ -248,23 +203,75 @@ def str_or_int(var):
     except ValueError:
         return str(var)
 
-# Set up the website request threading system
-def to_web(senddata):
+# Set up website request threading functions
+def logToWeb(senddata):
     global dec
     try:
         r = requests.post(webauth['lfpURL'], data=json.dumps(senddata), timeout=(10,10), headers={'User-Agent': webauth['ua'], 'Content-Type': 'application/json'})
     except requests.exceptions.ConnectionError:
         print(cc['cer'] + 'Connection error - Check Pi connectivity' + cc['e'])
-        log_stat(to_file = 1, customtext = 'Unable to send data to website due to connection error - Check Pi connectivity')
         dec['web'] = 60 # Try again in a minute
     except requests.exceptions.Timeout:
         print(cc['err'] + 'Request timed out trying to send data to the website' + cc['e'])
-        log_stat(to_file = 1, customtext = 'Unable to send data to website due to request timeout')
         dec['web'] = 60
     else:
         print(cc['snt'] + 'Data sent to website! Response: ' + str(r.status_code) + cc['e'])
-def fire_and_forget(senddata):
-    threading.Thread(target=to_web, args=(senddata,)).start()
+
+# Get WebVars from website and set up settings dict
+def webvarloader():
+    wvl = json.loads(open(wvfile, 'r').read()) # If this fails, well... lol
+    try:
+        r = requests.get(webauth['lwvURL'], timeout=(10,10), headers={'User-Agent': webauth['ua'], 'Content-Type': 'application/json'})
+    except requests.exceptions.ConnectionError:
+        print(cc['cer'] + 'Connection error while getting WebVars from the website - Check Pi connectivity' + cc['e'])
+    except requests.exceptions.Timeout:
+        print(cc['err'] + 'Request timed out trying to get WebVars from the website' + cc['e'])
+    else:
+        try:
+            js = r.json()
+            if js['data'] == 'good':
+                if not int(js['lastWebChange']) == int(wvl['lastWebChange']): # Let's not bother updating if nothing's changed.
+                    f = open(wvfile, 'w')
+                    f.write(str(json.dumps(js)))
+                    f.close()
+                    print(cc['suc'] + 'New WebVars downloaded and saved successfully' + cc['e'])
+                    wvl = js # Use updated settings for the second half!
+            else:
+                print(cc['err'] + 'This JSON data sucks!' + cc['e'])
+        except (requests.exceptions.InvalidJSONError, TypeError, NameError, OSError) as exceptionerror:
+            print(cc['err'] + 'Error getting WebVars from website, attempting to reuse existing WebVars')
+            print(exceptionerror + cc['e'])
+    try:
+        if not now['u'] or (int(wvl['lastWebChange']) and not int(wvl['lastWebChange']) == int(backup['lastWebChange'])): # Let's update some vars!
+            global setting, notes, notesi, do_log
+            wv = dict([(str(k), str_or_int(v)) for k, v in wvl.items()]) # Take care of variable type-casting
+            setting = {
+                'hvac': { # 1 = Enable, 0 = Disable
+                    'ac': 1 if not wv else wv['enable_ac'],
+                    'heat': 1 if not wv else wv['enable_heat'],
+                    'hfan': 1 if not wv else wv['enable_hfan'],
+                    'afan': 1 if not wv else wv['enable_afan']
+                },
+                'tempRefVolt': 330 if not wv else wv['tempRefVolt'], # 3.3 volt MCP3008 reference, no need to change unless we're vastly changing the hardware ref voltage.
+                'tempGlobalCorr': 0 if not wv else wv['tempGlobalCorr'], # Change this instead if we need to fine-tune readings.
+                'lastWebChange': 0 if not wv else wv['lastWebChange'],
+                'tempLow': 65 if not wv else wv['tempLow'], # Low temperature to turn on Heater
+                'tempHigh': 75 if not wv else wv['tempHigh'], # High temperature to turn on A/C
+                'tempHyst': 2 if not wv else wv['tempHyst'] # Temperature Hysteresis
+            }
+            backup['lastWebChange'] = wv['lastWebChange']
+            if now['u']:
+                log_stat(to_file = 1, customtext = 'Reloaded webvars last saved ' + wv['lastWebChangeStr'])
+                notes[notesi] = 'Reloaded webvars last saved ' + wv['lastWebChangeStr']
+                notesi += 1
+                do_log = 1
+            print(cc['suc'] + 'Reloaded webvars last saved ' + wv['lastWebChangeStr'] + cc['e'])
+        else:
+            print('WebVars loaded but unchanged from ' + str(wvl['lastWebChangeStr']))
+    except (NameError, OSError) as exceptionerror: # Problem? Forget it. Everything is broken.
+        print(cc['err'] + 'Error loading webvars, reusing existing values - ' + str(exceptionerror) + cc['e'])
+        breakstuff = setting # Kill us completely if setting is not defined because without it, nothing will work.
+        log_stat(to_file = 1, customtext = 'Error loading webvars, reusing existing values - ' + str(exceptionerror))
 
 # Turn on or off one system
 def turn_on_off(sys, on = 0):
@@ -332,7 +339,7 @@ def log_stat(to_file = 0, to_web = 0, customtext = 0):
             'ups': ups,
             'auth': webauth['auth']
         }
-        fire_and_forget(webdata) # Fire away fro fro fro fro from this place that we call home...
+        threading.Thread(target=logToWeb, args=(webdata,)).start() # Fire away fro fro fro fro from this place that we call home...
         dec['web'] = timer['web']
 
         # Back up the current system status dynamic variable array.
@@ -374,7 +381,7 @@ def cleardisplays():
     i2cmulti_reset()
 
 # Send data to the screens (in a sub-thread)
-def updatedisplaysthr():
+def updatedisplays():
     for i in range(displays):
         i2cmulti_switch(i2c_chan = i)
         # Init and clear display
@@ -393,9 +400,8 @@ def updatedisplaysthr():
         disp.image(image)
         disp.display() # Show!
     i2cmulti_reset()
-def updatedisplays():
-    threading.Thread(target=updatedisplaysthr).start()
 
+webvarloader() # Populate settings dict before jumping into things
 # Main loop
 while 1:
     # Press a button to re-enable the 128x64 screens when they're sleeping
@@ -411,7 +417,7 @@ while 1:
     # Reload WebVars
     if not dec['loadwebvars']:
         dec['loadwebvars'] = timer['loadwebvars']
-        reloadsettings()
+        threading.Thread(target=webvarloader).start()
     dec['loadwebvars'] -= 1
 
     # Current date and time
@@ -469,7 +475,7 @@ while 1:
     # Print current status of systems
     if not dec['cmd']:
         dec['cmd'] = timer['cmd']
-        print('A/C is ' + (cc['on'] if hvac['ac']['stat'] else cc['off']) + ', Heater is ' + (cc['on'] if hvac['heat']['stat'] else cc['off']) + ', HVAC Blower is ' + (cc['on'] if hvac['hfan']['stat'] else cc['off']) + ', Attic Fan is ' + (cc['on'] if hvac['afan']['stat'] else cc['off']) + ', AC Power is ' + (cc['on'] if backup['power1'] else cc['off']))
+        print('A/C is ' + (cc['dis'] if not setting['hvac']['ac'] else cc['on'] if hvac['ac']['stat'] else cc['off']) + ', Heater is ' + (cc['dis'] if not setting['hvac']['heat'] else cc['on'] if hvac['heat']['stat'] else cc['off']) + ', HVAC Blower is ' + (cc['dis'] if not setting['hvac']['hfan'] else cc['on'] if hvac['hfan']['stat'] else cc['off']) + ', Attic Fan is ' + (cc['dis'] if not setting['hvac']['afan'] else cc['on'] if hvac['afan']['stat'] else cc['off']) + ', AC Power is ' + (cc['on'] if backup['power1'] else cc['off']))
     dec['cmd'] -= 1
 
     if not dec['temp']:
@@ -513,7 +519,7 @@ while 1:
                 dispdata[4][e] = hvac[s]['laston' if hvac[s]['stat'] else 'lastoff']
                 dispdata[4][e+1] = hvac[s]['lastoff' if hvac[s]['stat'] else 'laston']
                 e += 2
-            updatedisplays() # Send it!
+            threading.Thread(target=updatedisplays).start() # Send it! In its own thread even!
         dec['display'] -= 1
         dec['disp_upd'] -= 1
     elif not display_off:
