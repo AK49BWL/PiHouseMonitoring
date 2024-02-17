@@ -2,15 +2,15 @@
 # This script has been written for Python 2.7
 # This script uses content from WOSPi (http://www.annoyingdesigns.com/wospi/) modified to suit my own needs
 # Author: AK49BWL
-# Updated: 02/11/2024 17:18
+# Updated: 02/16/2024 17:58
 
-import datetime
-import json
-import requests
 import serial
 import struct
-import threading
 import time
+
+# Modules?
+import gv
+cc = gv.cc
 
 com = { # Serial config
     'port': '/dev/ttyUSB0',
@@ -23,33 +23,20 @@ com = { # Serial config
     'delay': 0.5,
     'maxtry': 5, # Max number of attempts to wake console
 }
-
-cc = { # Console text coloring
-    'e': '\x1b[0m',
-    'off': '\x1b[1;31;40mOff\x1b[0m',
-    'on': '\x1b[1;32;40mOn\x1b[0m',
-    'snt': '\x1b[1;32;42m',
-    'fh': '\x1b[1;33;40m',
-    'err': '\x1b[1;33;41m',
-    'ws': '\x1b[1;33;45m',
-    'trn': '\x1b[1;36;40m',
-    'suc': '\x1b[1;36;42m',
-    'fbu': '\x1b[1;36;46m',
-    'cer': '\x1b[1;37;41m',
-    'ups': '\x1b[1;37;42m'
-}
+wxData = {}
+wx = 0
 
 # Write to console, terminate string with termChar, then delay
 def wxWrite(s, termChar='\n'):
-    if wx:
+    if gv.wx:
         s = s + termChar
-        wx.write(s)
+        gv.wx.write(s)
         time.sleep(com['delay'])
         return 1
     return 0
 
 def openWxComm():
-    wx = serial.Serial(com['port'], com['baud'], com['byte'], com['parity'], com['stop'], com['timeout'], com['onoff'])
+    wx = gv.wx = serial.Serial(com['port'], com['baud'], com['byte'], com['parity'], com['stop'], com['timeout'], com['onoff'])
     time.sleep(com['delay'])
     if not wx:
         return 0
@@ -66,7 +53,6 @@ def openWxComm():
             dummyBuffer = wx.read(wx.inWaiting())
             break
         else:
-            print('Console not yet responding to wakeup call')
             dummyBuffer = wx.read(wx.inWaiting())
             time.sleep(1.5)
     if wake:
@@ -79,8 +65,9 @@ def openWxComm():
 
 # Loads data from console - populates wxData, return 1 if success, 0 if failure
 def readWxData():
-    if not wx:
+    if not gv.wx:
         return 0
+    wx = gv.wx
     i = j = 0
     s = t = ''
     wxWrite('VER')
@@ -259,6 +246,7 @@ def readWxData():
             wxData['DEWPOINT_F'] = struct.unpack_from('H', s, 28)[0] / 1.0
             wxData['THSW_F'] = struct.unpack_from('H', s, 37)[0] / 1.0
             wxData['HINDEX_F'] = struct.unpack_from('H', s, 33)[0] / 1.0
+            gv.wxData = wxData
         else:
             print(cc['err'] + 'No LOOP2 packet or invalid CRC' + cc['e'])
             return 0
@@ -354,35 +342,4 @@ def unpackTime(theString, offset):
         z = '0' + z
     theTime = theTime + z
     return theTime
-
-# Load Webdata auth stuff
-webauth = json.loads(open('codes.json', 'r').read())
-# Set up the website request threading system
-def wxtoweb(senddata):
-    try:
-        r = requests.post(webauth['wxdURL'], data=json.dumps(senddata), timeout=(10,10), headers={'User-Agent': webauth['ua'], 'Content-Type': 'application/json'})
-    except requests.exceptions.ConnectionError:
-        print(cc['cer'] + 'Connection error sending wxData to the website - Check Pi connectivity' + cc['e'])
-    except requests.exceptions.Timeout:
-        print(cc['err'] + 'Request timed out trying to send wxData to the website' + cc['e'])
-    else:
-        print(cc['snt'] + 'Data sent to website! Response: ' + str(r.status_code) + cc['e'])
-
-wx = 0
-wxData = {}
-
-# MAIN LOOP! But do we actually want a loop? ... Meh, for now we'll just run this separately from thermo.py, but later we may integrate this part if it proves to be stable enough.
-while 1:
-    try:
-        # Current date and time
-        now = { 's': datetime.datetime.now().strftime('%b %d %Y %H:%M:%S'), 'u': int(time.mktime(datetime.datetime.now().timetuple())) }
-        print(now['s'])
-        wx = openWxComm()
-        wxData = { 'now_s': now['s'], 'now_u': now['u'] }
-        thing = readWxData()
-        if thing: # Everything seems to be working, send it to the website
-            wxData['auth'] = webauth['auth']
-            wxtoweb(wxData)
-    except (serial.SerialException, TypeError, NameError) as e:
-        print('Broke: ' + str(e))
-    time.sleep(300)
+    

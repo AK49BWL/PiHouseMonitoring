@@ -2,10 +2,13 @@
 # data to SSD1306-compliant displays, and log data to file + send to my website
 # This script has been written for Python 2.7
 # Author: AK49BWL
-# Updated: 02/11/2024 18:21
+# Updated: 02/16/2024 18:41
 
-# TO DO: Create AC power loss reaction function -- Auto-shutdown pi and UPS unit on power loss after 30 minutes. UPS can probably last much longer but meh.
-# Enable the UPS shutdown timer, force-send data to web and backup, send command to system to shut down, then exit the script.
+# RPi's role in the system: Receiver, Relay, or Controller // For future use, if we ever decide to make this Pi actually control the HVAC system
+# Receiver: Pi is in control of the attic fans, only receiving HVAC system control commands from the HVAC system's thermostat
+# Relay: Pi is in control of the HVAC system, acting as a relay between the HVAC system's thermostat and the system itself
+# Controller: Pi is in COMPLETE control of the HVAC system with no outside thermostat input
+piRole = 'Receiver'
 
 # Imports!
 import Adafruit_GPIO.SPI as SPI
@@ -19,41 +22,24 @@ import json
 from PIL import Image, ImageDraw, ImageFont
 import requests
 import RPi.GPIO as GPIO
+import serial
 import shutil
 import smbus
 import struct
 import threading
 import time
 
-# RPi's role in the system: Receiver, Relay, or Controller // For future use, if we ever decide to make this Pi actually control the HVAC system
-# Receiver: Pi is in control of the attic fans, only receiving HVAC system control commands from the HVAC system's thermostat
-# Relay: Pi is in control of the HVAC system, acting as a relay between the HVAC system's thermostat and the system itself
-# Controller: Pi is in COMPLETE control of the HVAC system with no outside thermostat input
-piRole = 'Receiver'
+# Modules?
+import daviswx # Davis Vantage Pro2 weather center
+import gv # Global variables
+cc = gv.cc
 
-cc = { # Console text coloring
-    'e': '\x1b[0m',
-    'off': '\x1b[1;31;40mOff\x1b[0m',
-    'on': '\x1b[1;32;40mOn\x1b[0m',
-    'dis': '\x1b[1;37;41mDisabled\x1b[0m',
-    'snt': '\x1b[1;32;42m',
-    'fh': '\x1b[1;33;40m',
-    'err': '\x1b[1;33;41m',
-    'ws': '\x1b[1;33;45m',
-    'trn': '\x1b[1;36;40m',
-    'suc': '\x1b[1;36;42m',
-    'fbu': '\x1b[1;36;46m',
-    'cer': '\x1b[1;37;41m',
-    'ups': '\x1b[1;37;42m',
-}
 # Files
-authfile = 'codes.json' # PASSWORDS n stuff
 logfile = 'history.csv' # Local file for logging temp and HVAC stat data
 bkpfile = 'dynbkp.json' # Backup file for variables to reload from last run
 wvfile = 'webvars.json' # File for vars changed by website
 
 # File loads
-webauth = json.loads(open(authfile, 'r').read())
 bkp = json.loads(open(bkpfile, 'r').read())
 wvl = json.loads(open(wvfile, 'r').read())
 # Check files for valid data
@@ -68,6 +54,7 @@ except NameError:
 
 # Current date/time array (UnixTime, string, month old and new for log rotation, script start unixtime)
 now = { 'u': 0, 's': '', 'om': 0 if not bkp else bkp['om'], 'nm': 0, 'scr': int(time.mktime(datetime.datetime.now().timetuple())) }
+firstrun = 1 # For things that need it
 
 # Set up backed-up data vars...
 backup = {
@@ -94,6 +81,7 @@ timer = {
     'chkattic': 300, # Checking attic temp for fan toggle
     'display': 60, # Display screens timeout
     'disp_upd': 5, # Display screens update
+    'wx': 300,
 }
 dec = { # Decrement vars for timers
     'cmd': 0,
@@ -103,10 +91,11 @@ dec = { # Decrement vars for timers
     'shutdown': timer['shutdown'], # We don't want this to start counting down unless there's a power outage
     'file': 0,
     'web': 0,
-    'loadwebvars': timer['loadwebvars'], # First run is done before loop, subsequent runs will be in a sub-thread
+    'loadwebvars': 150, # Offset this guy from the other 5 minute timers lol
     'chkattic': 0,
     'display': timer['display'],
-    'disp_upd': 0
+    'disp_upd': 0,
+    'wx': 0,
 }
 disp = SSD1306(rst=None, i2c_bus = 1, i2c_address=0x3C) # Set up our 128x64 screens
 displays = 5 # Number of screens
@@ -121,6 +110,7 @@ do_log = 1
 notesi = 1
 notes = { 0: 'thermo.py has just started up' } # This message will only be sent on first run
 display_off = 0
+wxdtu = 0 # Weather center update unixtime
 
 # Hardware SPI configuration:
 mcp0 = MCP3008(spi=SPI.SpiDev(0, 0)) # SPI Port 0, Device 0
@@ -207,7 +197,7 @@ def str_or_int(var):
 def logToWeb(senddata):
     global dec
     try:
-        r = requests.post(webauth['lfpURL'], data=json.dumps(senddata), timeout=(10,10), headers={'User-Agent': webauth['ua'], 'Content-Type': 'application/json'})
+        r = requests.post(gv.webauth['lfpURL'], data=json.dumps(senddata), timeout=(10,10), headers={'User-Agent': gv.webauth['ua'], 'Content-Type': 'application/json'})
     except requests.exceptions.ConnectionError:
         print(cc['cer'] + 'Connection error - Check Pi connectivity' + cc['e'])
         dec['web'] = 60 # Try again in a minute
@@ -221,7 +211,7 @@ def logToWeb(senddata):
 def webvarloader():
     wvl = json.loads(open(wvfile, 'r').read()) # If this fails, well... lol
     try:
-        r = requests.get(webauth['lwvURL'], timeout=(10,10), headers={'User-Agent': webauth['ua'], 'Content-Type': 'application/json'})
+        r = requests.get(gv.webauth['lwvURL'], timeout=(10,10), headers={'User-Agent': gv.webauth['ua'], 'Content-Type': 'application/json'})
     except requests.exceptions.ConnectionError:
         print(cc['cer'] + 'Connection error while getting WebVars from the website - Check Pi connectivity' + cc['e'])
     except requests.exceptions.Timeout:
@@ -242,7 +232,7 @@ def webvarloader():
             print(cc['err'] + 'Error getting WebVars from website, attempting to reuse existing WebVars')
             print(exceptionerror + cc['e'])
     try:
-        if not now['u'] or (int(wvl['lastWebChange']) and not int(wvl['lastWebChange']) == int(backup['lastWebChange'])): # Let's update some vars!
+        if firstrun or (int(wvl['lastWebChange']) and not int(wvl['lastWebChange']) == int(backup['lastWebChange'])): # Let's update some vars!
             global setting, notes, notesi, do_log
             wv = dict([(str(k), str_or_int(v)) for k, v in wvl.items()]) # Take care of variable type-casting
             setting = {
@@ -260,7 +250,7 @@ def webvarloader():
                 'tempHyst': 2 if not wv else wv['tempHyst'] # Temperature Hysteresis
             }
             backup['lastWebChange'] = wv['lastWebChange']
-            if now['u']:
+            if not firstrun:
                 log_stat(to_file = 1, customtext = 'Reloaded webvars last saved ' + wv['lastWebChangeStr'])
                 notes[notesi] = 'Reloaded webvars last saved ' + wv['lastWebChangeStr']
                 notesi += 1
@@ -331,13 +321,13 @@ def log_stat(to_file = 0, to_web = 0, customtext = 0):
             sensor[x]['temp'] = { 'v': values['v'][x], 'c': values['c'][x], 'f': values['f'][x] }
         backup['hvac'] = hvac
         webdata = {
-            'setting': setting,
-            'date': now,
+            'auth': gv.webauth['auth'],
             'backup': backup,
-            'tempdata': sensor,
+            'date': now,
             'notes': notes,
-            'ups': ups,
-            'auth': webauth['auth']
+            'setting': setting,
+            'tempdata': sensor,
+            'ups': ups
         }
         threading.Thread(target=logToWeb, args=(webdata,)).start() # Fire away fro fro fro fro from this place that we call home...
         dec['web'] = timer['web']
@@ -361,6 +351,27 @@ def rotatelogs():
     f.write('\r\n')
     f.close()
     print(cc['fbu'] + 'Log File gzipped and erased' + cc['e'])
+
+# Get weather center data
+def wxloop():
+    try:
+        gv.wx = daviswx.openWxComm()
+        thing = daviswx.readWxData()
+        if thing: # Everything seems to be working, send it to the website
+            global wxdtu
+            gv.wxData['auth'] = gv.webauth['auth']
+            gv.wxData['now_s'] = now['s']
+            gv.wxData['now_u'] = wxdtu = now['u']
+            try:
+                r = requests.post(gv.webauth['wxdURL'], data=json.dumps(gv.wxData), timeout=(10,10), headers={'User-Agent': gv.webauth['ua'], 'Content-Type': 'application/json'})
+            except requests.exceptions.ConnectionError:
+                print(cc['cer'] + 'Connection error sending wxData to the website - Check Pi connectivity' + cc['e'])
+            except requests.exceptions.Timeout:
+                print(cc['err'] + 'Request timed out trying to send wxData to the website' + cc['e'])
+            else:
+                print(cc['snt'] + 'wxData sent to website! Response: ' + str(r.status_code) + cc['e'])
+    except (serial.SerialException, TypeError, NameError) as e:
+        print(cc['cer'] + 'Wx broke: ' + str(e) + cc['e'])
 
 # Switch between the (T/P)CA3548A I2C Multiplexer channels and reset
 def i2cmulti_switch(mp_addr = 0x70, i2c_chan = 0):
@@ -429,9 +440,18 @@ while 1:
         rotatelogs()
         now['om'] = backup['om'] = now['nm']
 
+    # Update weather center data
+    if not dec['wx']:
+        dec['wx'] = timer['wx']
+        if firstrun:
+            wxloop() # No subthread for the first run
+        else:
+            threading.Thread(target=wxloop).start()
+    dec['wx'] -= 1
+
     # Check status of HVAC systems
     update_on_off()
-
+    
     # Temperature stuff
     if not dec['temp']:
         # Initialize temperature value array - this has to come before anything else otherwise values will be undefined!
@@ -444,10 +464,22 @@ while 1:
             pr_v[i] = values['v'][i] = (mcp0.read_adc(i) if i < 8 else mcp1.read_adc(i-8)) + setting['tempGlobalCorr'] + sensor[i]['corr'] # Get the voltage value of the channels from both MCP3008 ADC chips, adjusting as needed
             pr_c[i] = values['c'][i] = round(((values['v'][i] * setting['tempRefVolt']) / 1024.0) -50.0, 1) # Conversion to Celsius: MCP3008 Ref voltage / 10-bit ADC - TMP36 sensor 0-value is -50*C
             pr_f[i] = values['f'][i] = round((values['c'][i] * 1.8) + 32, 1) # Conversion to Fahrenheit
+        t_out = pr_f[0]
+        t_in = pr_f[2]
+        t_attic = pr_f[8]
+        t_use = 'TMP36 Temp Sensors'
+        # Get Pi CPU Temperature and convert to Fahrenheit
+        sensor[cpusens]['temp']['c'] = values['c'][cpusens] = round(CPUTemperature().temperature, 1)
+        sensor[cpusens]['temp']['f'] = values['f'][cpusens] = round((values['c'][cpusens] * 1.8) + 32, 1)
 
-    # Get Pi CPU Temperature and convert to Fahrenheit
-    sensor[cpusens]['temp']['c'] = values['c'][cpusens] = round(CPUTemperature().temperature, 1)
-    sensor[cpusens]['temp']['f'] = values['f'][cpusens] = round((values['c'][cpusens] * 1.8) + 32, 1)
+        # If weather center data is up-to-date within a 15 minute leeway, use its inside and outside temperatures for HVAC system checks
+        try:
+            if gv.wxData['OUTTEMP_F'] > -50 and gv.wxData['INTEMP_F'] > -50:
+                t_out = gv.wxData['OUTTEMP_F'] if wxdtu > now['u'] - 900 else pr_f[0]
+                t_in = gv.wxData['INTEMP_F'] if wxdtu > now['u'] - 900 else pr_f[2]
+                t_use = 'Davis Weather Center' if wxdtu > now['u'] - 900 else 'TMP36 Temp Sensors'
+        except (NameError, KeyError) as e:
+            print(cc['cer'] + 'Error while trying to set t_in and t_out: ' + str(e) + cc['e'])
 
     if not dec['cmd']:
         print(now['s'] + ' -- Pi Uptime: ' + str(datetime.timedelta(seconds=now['sut'])) + ' -- Script Runtime: ' + str(datetime.timedelta(seconds=now['u'] - now['scr'])) + ' -- CPU Temp: ' + str(values['c'][cpusens]) + '*C (' + str(values['f'][cpusens]) + '*F)')
@@ -456,10 +488,10 @@ while 1:
     if not dec['chkattic']:
         dec['chkattic'] = timer['chkattic']
         if not hvac['afan']['stat']:
-            if values['f'][8] - 5 > values['f'][0] and values['f'][0] > 68 and values['f'][2] > 68 and setting['hvac']['afan']: # If attic temp is 5+ degrees over outside temp (and both outside and inside temps are above 68 degrees), turn fans on if enabled
+            if t_attic - 5 > t_out and t_out > 68 and t_in > 68 and setting['hvac']['afan']: # If attic temp is 5+ degrees over outside temp (and both outside and inside temps are above 68 degrees), turn fans on if enabled
                 turn_on_off('afan', 1)
         else:
-            if values['f'][8] - 3 < values['f'][0] or values['f'][0] < 65 or values['f'][2] < 65: # Turn fans off when attic temp reaches below 3 degrees over outside temp, or when outside or inside temp drops below 65
+            if t_attic - 3 < t_out or t_out < 65 or t_in < 65: # Turn fans off when attic temp reaches below 3 degrees over outside temp, or when outside or inside temp drops below 65
                 turn_on_off('afan', 0)
     dec['chkattic'] -= 1
 
@@ -506,12 +538,12 @@ while 1:
             # We'll use screens 2 and 3 to output all the temperature sensor data
             for d in range(1, 3):
                 for e in range(8):
-                    dispdata[d][e] = str(sensor[e if d == 1 else e + 8]['dispname']) + ': ' + str('--' if pr_c[e if d == 1 else e + 8] <= -50 else pr_f[e if d == 1 else e + 8])
+                    dispdata[d][e] = str(sensor[e if d == 1 else e + 8]['dispname']) + ': ' + str('--' if pr_f[e if d == 1 else e + 8] <= -50 else pr_f[e if d == 1 else e + 8])
             # Screen 4 will show HVAC status
             e = 0
             for s in ['ac', 'heat', 'hfan', 'afan']:
-                dispdata[3][e] = hvac[s]['name'] + ' is ' + 'on' if hvac[s]['stat'] else 'off'
-                dispdata[3][e+1] = 'Last ' + 'off' if hvac[s]['stat'] else 'on'
+                dispdata[3][e] = hvac[s]['name'] + ' is ' + ('on' if hvac[s]['stat'] else 'off')
+                dispdata[3][e+1] = 'Last ' + ('off' if hvac[s]['stat'] else 'on')
                 e += 2
             # Screen 5 will show recent HVAC runtimes
             e = 0
@@ -532,5 +564,6 @@ while 1:
     notes = {}
     notesi = 0
     do_log = 0
+    firstrun = 0
 
     time.sleep(1)
