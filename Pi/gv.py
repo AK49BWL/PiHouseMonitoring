@@ -1,8 +1,6 @@
-# Read data from my Davis Vantage Pro 2 and send to my website
-# This script has been written for Python 2.7
-# This script uses content from WOSPi (http://www.annoyingdesigns.com/wospi/) modified to suit my own needs
+# Global variables for use across multiple modules
 # Author: AK49BWL
-# Updated: 02/16/2024 17:59
+# Updated: 02/16/2024 18:57
 
 import json
 

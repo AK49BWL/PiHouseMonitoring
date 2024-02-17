@@ -2,7 +2,7 @@
 # This script has been written for Python 2.7
 # This script uses content from WOSPi (http://www.annoyingdesigns.com/wospi/) modified to suit my own needs
 # Author: AK49BWL
-# Updated: 02/16/2024 17:58
+# Updated: 02/17/2024 14:41
 
 import serial
 import struct
@@ -40,9 +40,9 @@ def openWxComm():
     time.sleep(com['delay'])
     if not wx:
         return 0
+    print('Opening serial connection to Davis Vantage Pro2 console')
     wake = 0
     for attemptNo in range(1, com['maxtry'] + 1):
-        print('Waking console, attempt %s of %s' % (attemptNo, com['maxtry']))
         wx.write('\n')
         if wx.inWaiting() == 2:
             dummyBuffer = wx.read(wx.inWaiting())
@@ -55,9 +55,7 @@ def openWxComm():
         else:
             dummyBuffer = wx.read(wx.inWaiting())
             time.sleep(1.5)
-    if wake:
-        print('The console is responding')
-    else:
+    if not wake:
         print(cc['err'] + 'Unable to wake up the console (is cable connected?)' + cc['e'])
         wx.close()
         wx = 0
@@ -70,40 +68,7 @@ def readWxData():
     wx = gv.wx
     i = j = 0
     s = t = ''
-    wxWrite('VER')
-    i = wx.inWaiting()
-    t = wx.read(i).replace('\n\r', ' ', 5)
-    i = t.find('OK') + 3
-    wxData['VER'] = t[i:]
-    if wxData['VER'].strip() == '':
-        wxWrite('VER')
-        i = wx.inWaiting()
-        t = wx.read(i).replace('\n\r', ' ', 5)
-        i = t.find('OK') + 3
-        wxData['VER'] = t[i:]
-    i = wxData['VER'].find('OK')
-    if i >= 0:
-        wxData['VER'] = wxData['VER'][i + 3:]
-    wxWrite('NVER')
-    i = wx.inWaiting()
-    t = wx.read(i).replace('\n\r', ' ', 5)
-    i = t.find('OK') + 3
-    wxData['NVER'] = t[i:]
-    wx.flushInput()
-    wx.flushOutput()
-    time.sleep(com['delay'])
-    wxData['BARDATA'] = ''
-    wxWrite('BARDATA')
-    i = wx.inWaiting()
-    if i > 0:
-        s = wx.read(i)
-        wxData['BARDATA'] = s
-        i = s.find('DEW POINT') + 10
-        s = s[i:]
-        i = s.find('\n\r')
-        s = s[:i]
-        wxData['DEWPOINT_F'] = float(s)
-    wxData['CRC-CALC'] = 1
+    crcc = 1
     # Loop 1
     wxWrite('LOOP 1')
     loopSize = i = wx.inWaiting()
@@ -114,15 +79,13 @@ def readWxData():
         print('Read LOOP1 packet from console, received %d bytes' % (i))
         s = q = wx.read(i)
         s = s[3:]
-        wxData['CRC_PAD'] = struct.unpack_from('H', q, 95)[0]
-        wxData['CRC-CALC'] = CRC(q[1:101])
-        if wxData['CRC-CALC'] == 0:
-            print('LOOP1 packet CRC is verified')
-            L1 = q[1:]
-        else:
+        crcp = struct.unpack_from('H', q, 95)[0]
+        crcc = CRC(q[1:101])
+        if not crcc == 0:
             print(cc['err'] + 'No LOOP1 packet or invalid CRC' + cc['e'])
             return 0
-        j = wxData['BAROTREND'] = struct.unpack_from('B', s, 1)[0]
+        print('LOOP1 packet CRC is verified')
+        j = struct.unpack_from('B', s, 1)[0]
         t = 'Barometric pressure is '
         if j == 0:
             t += 'steady'
@@ -136,43 +99,28 @@ def readWxData():
             t += 'falling slowly'
         else:
             t = 'Barometric trend is not available'
-        wxData['BAROTRENDTEXT'] = t
-        j = wxData['BAROMETER_INHG'] = round(struct.unpack_from('H', s, 5)[0] / 1000.0, 2)
-        wxData['BAROMETER_HPA'] = round(j * 33.8639, 1)
-        j = wxData['INTEMP_F'] = struct.unpack_from('H', s, 7)[0] / 10.0
-        wxData['INHUM_P'] = struct.unpack_from('B', s, 9)[0]
-        j = wxData['OUTTEMP_F'] = struct.unpack_from('H', s, 10)[0] / 10.0
-        j = wxData['AVGWIND10_MPH'] = struct.unpack_from('B', s, 13)[0]
-        if j > 300:
-            j = 0
-            wxData['AVGWIND10_MPH'] = 0
-        wxData['AVGWIND10_KTS'] = round(j * 0.868976, 1)
-        wxData['AVGWIND10_MSEC'] = round(j * 0.44704, 1)
-        j = wxData['WIND_MPH'] = struct.unpack_from('B', s, 12)[0]
-        wxData['WIND_KTS'] = round(j * 0.868976, 1)
-        wxData['WIND_MSEC'] = round(j * 0.44704, 1)
-        t = str(struct.unpack_from('H', s, 14)[0])
-        if t == '0':
-            t = '000'
-        if len(t) < 3:
-            t = '0' + t
-        if len(t) < 3:
-            t = '0' + t
-        wxData['WINDDIR'] = t
-        wxData['WIND_CARDINAL'] = getCardinalDirection(int(t))
-        wxData['OUTHUM_P'] = struct.unpack_from('B', s, 31)[0]
-        if wxData['OUTHUM_P'] > 100:
-            print(cc['cer'] + 'Value out of range (manually verify console value) : OUTHUM_P = ' + str(wxData['OUTHUM_P']) + cc['e'])
-            wxData['OUTHUM_P'] = -1
-            wxData['DATAERROR'] = True
-        wxData['RAINRATE_INHR'] = struct.unpack_from('H', s, 39)[0] * 0.01
-        wxData['DAYRAIN_IN'] = struct.unpack_from('H', s, 48)[0] * 0.01
-        wxData['STORMRAIN_IN'] = struct.unpack_from('H', s, 44)[0] * 0.01
-        wxData['MONTHRAIN_IN'] = struct.unpack_from('H', s, 50)[0] * 0.01
-        wxData['YEARRAIN_IN'] = struct.unpack_from('H', s, 52)[0] * 0.01
+        wxData['baroTrend'] = t
+        j = wxData['baro_InHg'] = round(struct.unpack_from('H', s, 5)[0] / 1000.0, 2)
+        wxData['baro_hPa'] = round(j * 33.8639, 1)
+        wxData['tempIn'] = struct.unpack_from('H', s, 7)[0] / 10.0
+        wxData['humIn'] = struct.unpack_from('B', s, 9)[0]
+        wxData['tempOut'] = struct.unpack_from('H', s, 10)[0] / 10.0
+        wxData['humOut'] = struct.unpack_from('B', s, 31)[0]
+        if wxData['humOut'] > 100:
+            print(cc['cer'] + 'Outside humidity value out of range (manually verify console value): ' + str(wxData['humOut']) + cc['e'])
+            wxData['humOut'] = 0
+        j = wxData['windNow_mph'] = struct.unpack_from('B', s, 12)[0]
+        wxData['windNow_kts'] = round(j * 0.868976, 1)
+        t = wxData['windNow_dir'] = str(struct.unpack_from('H', s, 14)[0])
+        wxData['windNow_car'] = getCardinalDirection(int(t))
+        wxData['rainRate'] = struct.unpack_from('H', s, 39)[0] * 0.01
+        wxData['rainStorm'] = struct.unpack_from('H', s, 44)[0] * 0.01
+        wxData['rainD'] = struct.unpack_from('H', s, 48)[0] * 0.01
+        wxData['rainM'] = struct.unpack_from('H', s, 50)[0] * 0.01
+        wxData['rainY'] = struct.unpack_from('H', s, 52)[0] * 0.01
         t = struct.unpack_from('H', s, 46)[0]
         if t == 65535:
-            wxData['STORMSTART'] = '01.01.1970'
+            wxData['rainStormStart'] = '01.01.1970'
         else:
             storm_year = t % 128
             t = t - storm_year
@@ -189,16 +137,10 @@ def readWxData():
                 t += '0'
             t += str(storm_month) + '.'
             t += str(2000 + storm_year)
-            wxData['STORMSTART'] = t
-        t = 0
-        t = wxData['ET_DAY_IN'] = struct.unpack_from('H', s, 54)[0] * 0.001
-        wxData['ET_MONTH_IN'] = t + struct.unpack_from('H', s, 56)[0] * 0.01
-        wxData['ET_YEAR_IN'] = t + struct.unpack_from('H', s, 58)[0] * 0.01
-        wxData['FCICON'] = struct.unpack_from('B', s, 87)[0]
-        wxData['VOLTAGE'] = round(struct.unpack_from('H', s, 85)[0] * 300 / 512 / 100, 2)
-        wxData['BATTERYSTATUS'] = struct.unpack_from('B', s, 84)[0]
-        wxData['SUNRISE_LT'] = unpackTime(s, 89)
-        wxData['SUNSET_LT'] = unpackTime(s, 91)
+            wxData['rainStormStart'] = t
+        wxData['battery'] = round(struct.unpack_from('H', s, 85)[0] * 300 / 512 / 100, 2)
+        wxData['sunrise'] = unpackTime(s, 89)
+        wxData['sunset'] = unpackTime(s, 91)
         wxWrite('\n\n')
         wx.flushOutput()
         wx.flushInput()
@@ -212,44 +154,31 @@ def readWxData():
         print('Read LOOP2 packet from console, received %d bytes' % (loopSize))
         s = q = wx.read(i)
         s = s[3:]
-        if CRC(q[1:101]) == 0:
-            print('LOOP2 packet CRC is verified')
-            L2 = q[1:]
-            j = wxData['AVGWIND10_MPH'] = struct.unpack_from('H', s, 16)[0] / 10.0
-            if j > 300:
-                j = 0
-                wxData['AVGWIND10_MPH'] = 0
-            wxData['AVGWIND10_KTS'] = round(j * 0.868976, 1)
-            wxData['AVGWIND10_MSEC'] = round(j * 0.44704, 1)
-            j = wxData['AVGWIND2_MPH'] = struct.unpack_from('H', s, 18)[0] / 10.0
-            if j > 300:
-                j = 0
-                wxData['AVGWIND2_MPH'] = 0
-            wxData['AVGWIND2_KTS'] = round(j * 0.868976, 1)
-            wxData['AVGWIND2_MSEC'] = round(j * 0.44704, 1)
-            j = wxData['GUST10_MPH'] = struct.unpack_from('H', s, 20)[0]
-            wxData['GUST10_KTS'] = round(j * 0.868976, 1)
-            wxData['GUST10_MSEC'] = round(j * 0.44704, 1)
-            t = str(struct.unpack_from('H', s, 22)[0])
-            if t == '0':
-                t = '000'
-            if len(t) < 3:
-                t = '0' + t
-            if len(t) < 3:
-                t = '0' + t
-            wxData['GUST10DIR'] = t
-            wxData['GUST_CARDINAL'] = getCardinalDirection(int(t))
-            wxData['RAINFALL15_IN'] = struct.unpack_from('H', s, 50)[0] * 0.01
-            wxData['RAINFALL60_IN'] = struct.unpack_from('H', s, 52)[0] * 0.01
-            wxData['RAINFALL24H_IN'] = struct.unpack_from('H', s, 56)[0] * 0.01
-            wxData['WC_F'] = struct.unpack_from('H', s, 35)[0] / 1.0
-            wxData['DEWPOINT_F'] = struct.unpack_from('H', s, 28)[0] / 1.0
-            wxData['THSW_F'] = struct.unpack_from('H', s, 37)[0] / 1.0
-            wxData['HINDEX_F'] = struct.unpack_from('H', s, 33)[0] / 1.0
-            gv.wxData = wxData
-        else:
+        if not CRC(q[1:101]) == 0:
             print(cc['err'] + 'No LOOP2 packet or invalid CRC' + cc['e'])
             return 0
+        print('LOOP2 packet CRC is verified')
+        j = wxData['windAvg10_mph'] = struct.unpack_from('H', s, 16)[0] / 10.0
+        if j > 300:
+            j = 0
+            wxData['windAvg10_mph'] = 0
+        wxData['windAvg10_kts'] = round(j * 0.868976, 1)
+        j = wxData['windGust10_mph'] = struct.unpack_from('H', s, 20)[0]
+        wxData['windGust10_kts'] = round(j * 0.868976, 1)
+        t = wxData['windGust10_dir'] = str(struct.unpack_from('H', s, 22)[0])
+        wxData['windGust10_car'] = getCardinalDirection(int(t))
+        j = wxData['windAvg2_mph'] = struct.unpack_from('H', s, 18)[0] / 10.0
+        if j > 300:
+            j = 0
+            wxData['windAvg2_mph'] = 0
+        wxData['windAvg2_kts'] = round(j * 0.868976, 1)
+        wxData['rain15min'] = struct.unpack_from('H', s, 50)[0] * 0.01
+        wxData['rain60min'] = struct.unpack_from('H', s, 52)[0] * 0.01
+        wxData['rain24hr'] = struct.unpack_from('H', s, 56)[0] * 0.01
+        wxData['windChill'] = struct.unpack_from('H', s, 35)[0] / 1.0
+        wxData['dewpoint'] = struct.unpack_from('H', s, 28)[0] / 1.0
+        wxData['heatIndex'] = struct.unpack_from('H', s, 33)[0] / 1.0
+        gv.wxData = wxData
         return 1
 
 # CCITT-16 CRC implementation, function should return 0
@@ -286,10 +215,10 @@ def CRC(inputData):
         crcAcc = ushort ^ crcTab[(crcAcc >> 8 ^ 255 & byte)]
     return crcAcc
 
+# Returns wind cardinal direction
 def getCardinalDirection(direction):
-    """Returns cardinal wind direction."""
     s = '-'
-    if direction >= 0 and direction < 11.25:
+    if (direction >= 0 and direction < 11.25) or (direction >= 348.75 and direction <= 360):
         s = 'N'
     elif direction >= 11.25 and direction < 33.75:
         s = 'NNE'
@@ -321,8 +250,6 @@ def getCardinalDirection(direction):
         s = 'NW'
     elif direction >= 326.25 and direction < 348.75:
         s = 'NNW'
-    elif direction >= 348.75 and direction <= 360:
-        s = 'N'
     return s
 
 # Returns time (HH:MM) from theString at offset

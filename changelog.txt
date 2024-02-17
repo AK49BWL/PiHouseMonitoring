@@ -1,3 +1,9 @@
+02/17/2024
+daviswx.py:
+-- Code cleanup (removed unused variables, changed all variables to lowercase, some condensing)
+thermo.py, pitemp.php:
+-- wxData variables changed to match daviswx.py loop
+
 02/16/2024
 gv.py:
 -- Created to save "global" variables for use across modules

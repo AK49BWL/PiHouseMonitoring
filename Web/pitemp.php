@@ -1,4 +1,4 @@
-<?php // pitemp.php v2.0.20240211.1735
+<?php // pitemp.php v2.0.20240217.1447
 include $_SERVER['DOCUMENT_ROOT'].'/includes/include.php';
 // PHP7 does some weird shit with floats and JSON so we need to ini_set precisions. [Done here because of remote hosting possibly ignoring custom php.ini and .htaccess modifications]
 ini_set('precision', -1);
@@ -113,17 +113,18 @@ Last recorded AC power loss: '.$data['backup']['powerlastoff'].', '.($data['back
 System UPS Battery: '.round((($data['ups']['data']['main']['battTempC'] * 1.8) + 32), 1).'&#176;F, '.$data['ups']['data']['main']['battTempC'].'&#176;C<br />' : '').($tskip ? '
 '.$tskip.' sensors skipped due to not being in use<br />
 <span class="notice2">Weather Center (Updated '.$wxData['now_s'].'):</span><br />
-Outside Temp, Humidity: '.$wxData['OUTTEMP_F'].'&#176;F, '.$wxData['OUTHUM_P'].'%'.($wxData['HINDEX_F'] > $wxData['OUTTEMP_F']+3 ? ' -- Heat Index: '.$wxData['HINDEX_F'].'&#176;F' : '').'<br />
-Inside Temp, Humidity: '.$wxData['INTEMP_F'].'&#176;F, '.$wxData['INHUM_P'].'%<br />
-Wind (10 minute average): '.$wxData['WINDDIR'].'&#176; '.$wxData['WIND_CARDINAL'].' at '.$wxData['AVGWIND10_MPH'].'mph '.($wxData['GUST10_MPH'] > 0 ? 'gusting to '.$wxData['GUST10_MPH'].'mph' : '').($wxData['WC_F'] < $wxDATA['OUTTEMP_F']-3 ? ' -- Wind Chill: '.$wxData['WC_F'].'&#176;F' : '').'<br />'.($wxData['RAINFALL24H_IN'] ? '
-Rain Inches (last 15min, 1hr, 24hr): '.round($wxData['RAINFALL15_IN'], 2).', '.round($wxData['RAINFALL60_IN'], 2).', '.round($wxData['RAINFALL24H_IN'], 2).($wxData['RAINRATE_INHR'] ? ', currently raining at '.round($wxData['RAINRATE_INHR'], 2).'in/hr' : '').'<br />' : '').'
-Rain Today: '.round($wxData['DAYRAIN_IN'], 2).'in -- This month: '.round($wxData['MONTHRAIN_IN'], 2).'in -- This year: '.round($wxData['YEARRAIN_IN'], 2).'in<br />
+Outside Temp, Humidity: '.$wxData['tempOut'].'&#176;F, '.$wxData['humOut'].'%'.($wxData['heatIndex'] > $wxData['tempOut'] + 3 ? ' -- Heat Index: '.$wxData['heatIndex'].'&#176;F' : '').'<br />
+Inside Temp, Humidity: '.$wxData['tempIn'].'&#176;F, '.$wxData['humIn'].'%<br />
+Wind (10 minute average): '.$wxData['windNow_dir'].'&#176; '.$wxData['windNow_car'].' at '.$wxData['windAvg10_mph'].'mph '.($wxData['windGust10_mph'] > $wxData['windAvg10_mph'] ? 'gusting to '.$wxData['windGust10_mph'].'mph' : '').($wxData['windChill'] < $wxDATA['tempOut'] - 3 ? ' -- Wind Chill: '.$wxData['windChill'].'&#176;F' : '').'<br />'.($wxData['rain24hr'] ? '
+Rain Inches (last 15min, 1hr, 24hr): '.round($wxData['rain15min'], 2).', '.round($wxData['rain60min'], 2).', '.round($wxData['rain24hr'], 2).($wxData['rainRate'] ? ', currently raining at '.round($wxData['rainRate'], 2).'in/hr' : '').'<br />' : '').'
+Rain Today: '.round($wxData['rainD'], 2).'in -- This month: '.round($wxData['rainM'], 2).'in -- This year: '.round($wxData['rainY'], 2).'in<br />
 <br /><a href="pitemp.php?do=about">About this page</a><br />' : '');
 
     } else
         $return = 'Something really broke.<br />';
     if (isset($_GET['showfile']) && $context['user']['is_admin']) {
         ksortRec($data);
+		ksortRec($wxData);
         $return .= '<br /><br />'.nl2br(str_replace(' ', '&nbsp', print_r(array($data, $wxData), 1)));
     }
     return array( 'data' => $return );

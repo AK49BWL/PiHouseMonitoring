@@ -2,7 +2,7 @@
 # data to SSD1306-compliant displays, and log data to file + send to my website
 # This script has been written for Python 2.7
 # Author: AK49BWL
-# Updated: 02/16/2024 18:41
+# Updated: 02/17/2024 14:32
 
 # RPi's role in the system: Receiver, Relay, or Controller // For future use, if we ever decide to make this Pi actually control the HVAC system
 # Receiver: Pi is in control of the attic fans, only receiving HVAC system control commands from the HVAC system's thermostat
@@ -92,7 +92,7 @@ dec = { # Decrement vars for timers
     'file': 0,
     'web': 0,
     'loadwebvars': 150, # Offset this guy from the other 5 minute timers lol
-    'chkattic': 0,
+    'chkattic': 15,
     'display': timer['display'],
     'disp_upd': 0,
     'wx': 0,
@@ -451,7 +451,7 @@ while 1:
 
     # Check status of HVAC systems
     update_on_off()
-    
+
     # Temperature stuff
     if not dec['temp']:
         # Initialize temperature value array - this has to come before anything else otherwise values will be undefined!
@@ -474,9 +474,9 @@ while 1:
 
         # If weather center data is up-to-date within a 15 minute leeway, use its inside and outside temperatures for HVAC system checks
         try:
-            if gv.wxData['OUTTEMP_F'] > -50 and gv.wxData['INTEMP_F'] > -50:
-                t_out = gv.wxData['OUTTEMP_F'] if wxdtu > now['u'] - 900 else pr_f[0]
-                t_in = gv.wxData['INTEMP_F'] if wxdtu > now['u'] - 900 else pr_f[2]
+            if gv.wxData['tempOut'] > -50 and gv.wxData['tempIn'] > -50:
+                t_out = gv.wxData['tempOut'] if wxdtu > now['u'] - 900 else pr_f[0]
+                t_in = gv.wxData['tempIn'] if wxdtu > now['u'] - 900 else pr_f[2]
                 t_use = 'Davis Weather Center' if wxdtu > now['u'] - 900 else 'TMP36 Temp Sensors'
         except (NameError, KeyError) as e:
             print(cc['cer'] + 'Error while trying to set t_in and t_out: ' + str(e) + cc['e'])
