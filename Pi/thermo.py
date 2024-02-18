@@ -2,7 +2,7 @@
 # data to SSD1306-compliant displays, and log data to file + send to my website
 # This script has been written for Python 2.7
 # Author: AK49BWL
-# Updated: 02/17/2024 14:32
+# Updated: 02/18/2024 12:23
 
 # RPi's role in the system: Receiver, Relay, or Controller // For future use, if we ever decide to make this Pi actually control the HVAC system
 # Receiver: Pi is in control of the attic fans, only receiving HVAC system control commands from the HVAC system's thermostat
@@ -193,25 +193,26 @@ def str_or_int(var):
     except ValueError:
         return str(var)
 
-# Set up website request threading functions
-def logToWeb(senddata):
-    global dec
+# Send data to website with no expectation of a response
+def logToWeb(senddata = {}, dest = 0, retry = 0):
+    if not senddata or not dest: # Honestly, this should never happen.
+        print(cc['cer'] + 'logToWeb called without proper args!' + cc['e'])
+        return 0
     try:
-        r = requests.post(gv.webauth['lfpURL'], data=json.dumps(senddata), timeout=(10,10), headers={'User-Agent': gv.webauth['ua'], 'Content-Type': 'application/json'})
-    except requests.exceptions.ConnectionError:
-        print(cc['cer'] + 'Connection error - Check Pi connectivity' + cc['e'])
-        dec['web'] = 60 # Try again in a minute
-    except requests.exceptions.Timeout:
-        print(cc['err'] + 'Request timed out trying to send data to the website' + cc['e'])
-        dec['web'] = 60
+        r = requests.post(gv.webauth['baseURL'] + gv.webauth[dest], data=json.dumps(senddata), timeout=(10,10), headers={'User-Agent': gv.webauth['ua'], 'Content-Type': 'application/json'})
+    except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
+        print(cc['cer'] + 'Error sending ' + dest + ' data to website: ' + str(e) + cc['e'])
+        if retry:
+            global dec
+            dec[retry] = 60 # Try again in a minute
     else:
-        print(cc['snt'] + 'Data sent to website! Response: ' + str(r.status_code) + cc['e'])
+        print(cc['snt'] + dest + 'data sent to website! Response: ' + str(r.status_code) + cc['e'])
 
 # Get WebVars from website and set up settings dict
 def webvarloader():
     wvl = json.loads(open(wvfile, 'r').read()) # If this fails, well... lol
     try:
-        r = requests.get(gv.webauth['lwvURL'], timeout=(10,10), headers={'User-Agent': gv.webauth['ua'], 'Content-Type': 'application/json'})
+        r = requests.get(gv.webauth['baseURL'] + gv.webauth['lwv'], timeout=(10,10), headers={'User-Agent': gv.webauth['ua'], 'Content-Type': 'application/json'})
     except requests.exceptions.ConnectionError:
         print(cc['cer'] + 'Connection error while getting WebVars from the website - Check Pi connectivity' + cc['e'])
     except requests.exceptions.Timeout:
@@ -247,15 +248,16 @@ def webvarloader():
                 'lastWebChange': 0 if not wv else wv['lastWebChange'],
                 'tempLow': 65 if not wv else wv['tempLow'], # Low temperature to turn on Heater
                 'tempHigh': 75 if not wv else wv['tempHigh'], # High temperature to turn on A/C
-                'tempHyst': 2 if not wv else wv['tempHyst'] # Temperature Hysteresis
+                'tempHyst': 2 if not wv else wv['tempHyst'], # Temperature Hysteresis
+                'wx': 1 if not wv else wv['wx'], # Enable or disable weather center
             }
-            backup['lastWebChange'] = wv['lastWebChange']
-            if not firstrun:
+            if not firstrun or not wv['lastWebChange'] == backup['lastWebChange']:
                 log_stat(to_file = 1, customtext = 'Reloaded webvars last saved ' + wv['lastWebChangeStr'])
                 notes[notesi] = 'Reloaded webvars last saved ' + wv['lastWebChangeStr']
                 notesi += 1
                 do_log = 1
             print(cc['suc'] + 'Reloaded webvars last saved ' + wv['lastWebChangeStr'] + cc['e'])
+            backup['lastWebChange'] = wv['lastWebChange']
         else:
             print('WebVars loaded but unchanged from ' + str(wvl['lastWebChangeStr']))
     except (NameError, OSError) as exceptionerror: # Problem? Forget it. Everything is broken.
@@ -277,7 +279,7 @@ def turn_on_off(sys, on = 0):
         GPIO.output(hvac[sys]['pin'], GPIO.HIGH if on else GPIO.LOW)
         hvac[sys]['stat'] = 1 if GPIO.input(hvac[sys]['pin']) else 0
         hvac[sys]['laston' if hvac[sys]['stat'] else 'lastoff'] = now['s']
-        notes[notesi] = hvac[sys]['name'] + ' turned ' + 'on' if on else 'off'
+        notes[notesi] = hvac[sys]['name'] + ' turned ' + ('on' if on else 'off')
         notesi += 1
         do_log = 1
 
@@ -290,7 +292,7 @@ def update_on_off():
             hvac[s]['stat'] = 1 if GPIO.input(hvac[s]['pin']) else 0
             hvac[s]['laston' if hvac[s]['stat'] else 'lastoff'] = now['s']
             print(cc['trn'] + hvac[s]['name'] + ' has turned ' + ('on' if hvac[s]['stat'] else 'off') + cc['e'])
-            notes[notesi] = hvac[s]['name'] + ' has turned ' + 'on' if hvac[s]['stat'] else 'off'
+            notes[notesi] = hvac[s]['name'] + ' has turned ' + ('on' if hvac[s]['stat'] else 'off')
             notesi += 1
             time.sleep(1) # Wait a moment as there is a delay between multiple HVAC system changes...
             do_log = 1
@@ -327,9 +329,10 @@ def log_stat(to_file = 0, to_web = 0, customtext = 0):
             'notes': notes,
             'setting': setting,
             'tempdata': sensor,
-            'ups': ups
+            'ups': ups,
+            'wx': gv.wxData,
         }
-        threading.Thread(target=logToWeb, args=(webdata,)).start() # Fire away fro fro fro fro from this place that we call home...
+        threading.Thread(target=logToWebThr, args=(webdata,)).start() # Fire away fro fro fro fro from this place that we call home...
         dec['web'] = timer['web']
 
         # Back up the current system status dynamic variable array.
@@ -338,6 +341,8 @@ def log_stat(to_file = 0, to_web = 0, customtext = 0):
         bkpf.write(json.dumps(backup))
         bkpf.close()
         print(cc['fbu'] + 'Wrote ' + bkpfile + cc['e'])
+def logToWebThr(sd): # Forwarder because threading doesn't like my args lol
+    logToWeb(senddata = sd, dest = 'log', retry = 'web')
 
 # For log rotation - compresses history logfile into a .gz with year and month, then clears history.csv for the new month
 def rotatelogs():
@@ -362,16 +367,19 @@ def wxloop():
             gv.wxData['auth'] = gv.webauth['auth']
             gv.wxData['now_s'] = now['s']
             gv.wxData['now_u'] = wxdtu = now['u']
-            try:
-                r = requests.post(gv.webauth['wxdURL'], data=json.dumps(gv.wxData), timeout=(10,10), headers={'User-Agent': gv.webauth['ua'], 'Content-Type': 'application/json'})
-            except requests.exceptions.ConnectionError:
-                print(cc['cer'] + 'Connection error sending wxData to the website - Check Pi connectivity' + cc['e'])
-            except requests.exceptions.Timeout:
-                print(cc['err'] + 'Request timed out trying to send wxData to the website' + cc['e'])
-            else:
-                print(cc['snt'] + 'wxData sent to website! Response: ' + str(r.status_code) + cc['e'])
+            logToWeb(senddata = gv.wxData, dest = 'wxd')
+            gv.wxFail = 0
+            setting['wx'] = 1
+            return 1
     except (serial.SerialException, TypeError, NameError) as e:
         print(cc['cer'] + 'Wx broke: ' + str(e) + cc['e'])
+    print(cc['err'] + 'Weather center data for this iteration not saved' + cc['e'])
+    gv.wxFail += 1
+    dec['wx'] = 60
+    if gv.wxFail >= 10: # If weather center is not responding for an extended period, just stop trying until the problem is fixed
+        print(cc['cer'] + 'Weather center data check disabled due to multiple failures' + cc['e'])
+        setting['wx'] = 0
+
 
 # Switch between the (T/P)CA3548A I2C Multiplexer channels and reset
 def i2cmulti_switch(mp_addr = 0x70, i2c_chan = 0):
@@ -391,7 +399,7 @@ def cleardisplays():
         disp.display()
     i2cmulti_reset()
 
-# Send data to the screens (in a sub-thread)
+# Send data to the screens
 def updatedisplays():
     for i in range(displays):
         i2cmulti_switch(i2c_chan = i)
@@ -445,7 +453,7 @@ while 1:
         dec['wx'] = timer['wx']
         if firstrun:
             wxloop() # No subthread for the first run
-        else:
+        elif setting['wx']:
             threading.Thread(target=wxloop).start()
     dec['wx'] -= 1
 
@@ -473,13 +481,10 @@ while 1:
         sensor[cpusens]['temp']['f'] = values['f'][cpusens] = round((values['c'][cpusens] * 1.8) + 32, 1)
 
         # If weather center data is up-to-date within a 15 minute leeway, use its inside and outside temperatures for HVAC system checks
-        try:
-            if gv.wxData['tempOut'] > -50 and gv.wxData['tempIn'] > -50:
-                t_out = gv.wxData['tempOut'] if wxdtu > now['u'] - 900 else pr_f[0]
-                t_in = gv.wxData['tempIn'] if wxdtu > now['u'] - 900 else pr_f[2]
-                t_use = 'Davis Weather Center' if wxdtu > now['u'] - 900 else 'TMP36 Temp Sensors'
-        except (NameError, KeyError) as e:
-            print(cc['cer'] + 'Error while trying to set t_in and t_out: ' + str(e) + cc['e'])
+        if wxdtu > now['u'] - 900:
+            t_out = gv.wxData['tempOut']
+            t_in = gv.wxData['tempIn']
+            t_use = 'Davis Weather Center'
 
     if not dec['cmd']:
         print(now['s'] + ' -- Pi Uptime: ' + str(datetime.timedelta(seconds=now['sut'])) + ' -- Script Runtime: ' + str(datetime.timedelta(seconds=now['u'] - now['scr'])) + ' -- CPU Temp: ' + str(values['c'][cpusens]) + '*C (' + str(values['f'][cpusens]) + '*F)')

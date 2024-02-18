@@ -1,3 +1,14 @@
+02/18/2024
+thermo.py:
+-- Combined all no-response website sends into one function
+-- Weather center data check will now stop running if the check fails 10 times
+>>> Can be re-awoken by sending WebVar 'wx' = 1 which will reset the failure counter upon a successful run
+-- Various changes and fixes
+gv.py:
+-- Changes to console output colors
+pitemp:
+-- Added wx to WebVars (for re-enabling weather center if it fails too many times)
+
 02/17/2024
 daviswx.py:
 -- Code cleanup (removed unused variables, changed all variables to lowercase, some condensing)

@@ -1,4 +1,4 @@
-<?php // pitemp.php v2.0.20240217.1447
+<?php // pitemp.php v2.0.20240218.1118
 include $_SERVER['DOCUMENT_ROOT'].'/includes/include.php';
 // PHP7 does some weird shit with floats and JSON so we need to ini_set precisions. [Done here because of remote hosting possibly ignoring custom php.ini and .htaccess modifications]
 ini_set('precision', -1);
@@ -112,7 +112,8 @@ Last recorded AC power loss: '.$data['backup']['powerlastoff'].', '.($data['back
 ', $tempout).'<br />'.($data['ups']['enable'] ? '
 System UPS Battery: '.round((($data['ups']['data']['main']['battTempC'] * 1.8) + 32), 1).'&#176;F, '.$data['ups']['data']['main']['battTempC'].'&#176;C<br />' : '').($tskip ? '
 '.$tskip.' sensors skipped due to not being in use<br />
-<span class="notice2">Weather Center (Updated '.$wxData['now_s'].'):</span><br />
+<span class="notice2">Weather Center (Updated '.$wxData['now_s'].'):</span><br />'.($context['user']['is_admin'] && !$data['setting']['wx'] ? '
+<span class="pagedesc">Weather center checks have been disabled due to multiple failures.</span><br />' : '').'
 Outside Temp, Humidity: '.$wxData['tempOut'].'&#176;F, '.$wxData['humOut'].'%'.($wxData['heatIndex'] > $wxData['tempOut'] + 3 ? ' -- Heat Index: '.$wxData['heatIndex'].'&#176;F' : '').'<br />
 Inside Temp, Humidity: '.$wxData['tempIn'].'&#176;F, '.$wxData['humIn'].'%<br />
 Wind (10 minute average): '.$wxData['windNow_dir'].'&#176; '.$wxData['windNow_car'].' at '.$wxData['windAvg10_mph'].'mph '.($wxData['windGust10_mph'] > $wxData['windAvg10_mph'] ? 'gusting to '.$wxData['windGust10_mph'].'mph' : '').($wxData['windChill'] < $wxDATA['tempOut'] - 3 ? ' -- Wind Chill: '.$wxData['windChill'].'&#176;F' : '').'<br />'.($wxData['rain24hr'] ? '
@@ -124,7 +125,7 @@ Rain Today: '.round($wxData['rainD'], 2).'in -- This month: '.round($wxData['rai
         $return = 'Something really broke.<br />';
     if (isset($_GET['showfile']) && $context['user']['is_admin']) {
         ksortRec($data);
-		ksortRec($wxData);
+        ksortRec($wxData);
         $return .= '<br /><br />'.nl2br(str_replace(' ', '&nbsp', print_r(array($data, $wxData), 1)));
     }
     return array( 'data' => $return );

@@ -2,7 +2,7 @@
 # This script has been written for Python 2.7
 # This script uses content from WOSPi (http://www.annoyingdesigns.com/wospi/) modified to suit my own needs
 # Author: AK49BWL
-# Updated: 02/17/2024 14:41
+# Updated: 02/18/2024 11:37
 
 import serial
 import struct
@@ -36,11 +36,11 @@ def wxWrite(s, termChar='\n'):
     return 0
 
 def openWxComm():
+    print(cc['ser'] + 'Opening serial connection to Davis Vantage Pro2 console' + cc['e'])
     wx = gv.wx = serial.Serial(com['port'], com['baud'], com['byte'], com['parity'], com['stop'], com['timeout'], com['onoff'])
     time.sleep(com['delay'])
     if not wx:
         return 0
-    print('Opening serial connection to Davis Vantage Pro2 console')
     wake = 0
     for attemptNo in range(1, com['maxtry'] + 1):
         wx.write('\n')
