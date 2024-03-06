@@ -2,7 +2,7 @@
 # This script has been written for Python 2.7
 # This script uses content from WOSPi (http://www.annoyingdesigns.com/wospi/) modified to suit my own needs
 # Author: AK49BWL
-# Updated: 02/18/2024 11:37
+# Updated: 03/05/2024 20:29
 
 import serial
 import struct
@@ -24,6 +24,7 @@ com = { # Serial config
     'maxtry': 5, # Max number of attempts to wake console
 }
 wxData = {}
+wxMinMax = {}
 wx = 0
 
 # Write to console, terminate string with termChar, then delay
@@ -61,7 +62,7 @@ def openWxComm():
         wx = 0
     return wx
 
-# Loads data from console - populates wxData, return 1 if success, 0 if failure
+# Load current data from console, populate gv.wxData, return 1 if success, 0 if failure
 def readWxData():
     if not gv.wx:
         return 0
@@ -100,17 +101,16 @@ def readWxData():
         else:
             t = 'Barometric trend is not available'
         wxData['baroTrend'] = t
-        j = wxData['baro_InHg'] = round(struct.unpack_from('H', s, 5)[0] / 1000.0, 2)
-        wxData['baro_hPa'] = round(j * 33.8639, 1)
+        wxData['baro_InHg'] = round(struct.unpack_from('H', s, 5)[0] / 1000.0, 2)
         wxData['tempIn'] = struct.unpack_from('H', s, 7)[0] / 10.0
         wxData['humIn'] = struct.unpack_from('B', s, 9)[0]
         wxData['tempOut'] = struct.unpack_from('H', s, 10)[0] / 10.0
+        wxData['ISSerror'] = 1 if wxData['tempOut'] > 212 else 0 # In case the connection to the ISS fails, temp will be 3276.7
         wxData['humOut'] = struct.unpack_from('B', s, 31)[0]
         if wxData['humOut'] > 100:
             print(cc['cer'] + 'Outside humidity value out of range (manually verify console value): ' + str(wxData['humOut']) + cc['e'])
             wxData['humOut'] = 0
-        j = wxData['windNow_mph'] = struct.unpack_from('B', s, 12)[0]
-        wxData['windNow_kts'] = round(j * 0.868976, 1)
+        wxData['windNow_mph'] = struct.unpack_from('B', s, 12)[0]
         t = wxData['windNow_dir'] = str(struct.unpack_from('H', s, 14)[0])
         wxData['windNow_car'] = getCardinalDirection(int(t))
         wxData['rainRate'] = struct.unpack_from('H', s, 39)[0] * 0.01
@@ -162,16 +162,13 @@ def readWxData():
         if j > 300:
             j = 0
             wxData['windAvg10_mph'] = 0
-        wxData['windAvg10_kts'] = round(j * 0.868976, 1)
-        j = wxData['windGust10_mph'] = struct.unpack_from('H', s, 20)[0]
-        wxData['windGust10_kts'] = round(j * 0.868976, 1)
+        wxData['windGust10_mph'] = struct.unpack_from('H', s, 20)[0]
         t = wxData['windGust10_dir'] = str(struct.unpack_from('H', s, 22)[0])
         wxData['windGust10_car'] = getCardinalDirection(int(t))
         j = wxData['windAvg2_mph'] = struct.unpack_from('H', s, 18)[0] / 10.0
         if j > 300:
             j = 0
             wxData['windAvg2_mph'] = 0
-        wxData['windAvg2_kts'] = round(j * 0.868976, 1)
         wxData['rain15min'] = struct.unpack_from('H', s, 50)[0] * 0.01
         wxData['rain60min'] = struct.unpack_from('H', s, 52)[0] * 0.01
         wxData['rain24hr'] = struct.unpack_from('H', s, 56)[0] * 0.01
@@ -179,7 +176,104 @@ def readWxData():
         wxData['dewpoint'] = struct.unpack_from('H', s, 28)[0] / 1.0
         wxData['heatIndex'] = struct.unpack_from('H', s, 33)[0] / 1.0
         gv.wxData = wxData
+        print(cc['ups'] + 'wxData updated' + cc['e'])
         return 1
+
+# Read HILOWS packet from the console, populate gv.wxMinMax, return 1 if success, 0 if failure
+def readWxHL():
+    if not gv.wx:
+        return 0
+    wx = gv.wx
+    wxWrite('HILOWS')
+    time.sleep(0.8)
+    i = wx.inWaiting()
+    t = wx.read(i)
+    if i != 439:
+        wxWrite('HILOWS')
+        time.sleep(1.0)
+        i = wx.inWaiting()
+        t = wx.read(i)
+    if i != 439:
+        print(cc['err'] + 'Only ' + str(i) + ' of 439 bytes in HILOWS data packet' + cc['e'])
+        return 0
+    print('Read HILOWS packet from console, received %d bytes' % (i))
+    i = CRC(t[1:439])
+    if i != 0:
+        print(cc['err'] + 'Invalid CRC in HILOWS data packet' + cc['e'])
+        return 0
+    print('HILOWS packet CRC is verified')
+    wxMinMax['minDay_BaroInHg'] = round(struct.unpack_from('H', t, 1)[0] / 1000.0, 2)
+    wxMinMax['maxDay_BaroInHg'] = round(struct.unpack_from('H', t, 3)[0] / 1000.0, 2)
+    wxMinMax['minMonth_BaroInHg'] = round(struct.unpack_from('H', t, 5)[0] / 1000.0, 2)
+    wxMinMax['maxMonth_BaroInHg'] = round(struct.unpack_from('H', t, 7)[0] / 1000.0, 2)
+    wxMinMax['minYear_BaroInHg'] = round(struct.unpack_from('H', t, 9)[0] / 1000.0, 2)
+    wxMinMax['maxYear_BaroInHg'] = round(struct.unpack_from('H', t, 11)[0] / 1000.0, 2)
+    wxMinMax['minTime_Baro'] = unpackTime(t, 13)
+    wxMinMax['maxTime_Baro'] = unpackTime(t, 15)
+    wxMinMax['maxDay_Wind'] = struct.unpack_from('B', t, 17)[0]
+    wxMinMax['maxMonth_Wind'] = struct.unpack_from('B', t, 20)[0]
+    wxMinMax['maxYear_Wind'] = struct.unpack_from('B', t, 21)[0]
+    wxMinMax['maxTime_Wind'] = unpackTime(t, 18)
+    wxMinMax['minDay_WindChill'] = struct.unpack_from('H', t, 80)[0]
+    wxMinMax['minMonth_WindChill'] = struct.unpack_from('H', t, 84)[0]
+    wxMinMax['minYear_WindChill'] = struct.unpack_from('H', t, 86)[0]
+    wxMinMax['minTime_WindChill'] = unpackTime(t, 82)
+    wxMinMax['minDay_TempOut'] = struct.unpack_from('H', t, 48)[0] / 10.0
+    wxMinMax['maxDay_TempOut'] = struct.unpack_from('H', t, 50)[0] / 10.0
+    wxMinMax['minMonth_TempOut'] = struct.unpack_from('H', t, 58)[0] / 10.0
+    wxMinMax['maxMonth_TempOut'] = struct.unpack_from('H', t, 56)[0] / 10.0
+    wxMinMax['minYear_TempOut'] = struct.unpack_from('H', t, 62)[0] / 10.0
+    wxMinMax['maxYear_TempOut'] = struct.unpack_from('H', t, 60)[0] / 10.0
+    wxMinMax['maxTime_TempOut'] = unpackTime(t, 54)
+    wxMinMax['minTime_TempOut'] = unpackTime(t, 52)
+    wxMinMax['maxDay_HeatIndex'] = struct.unpack_from('H', t, 88)[0]
+    wxMinMax['maxMonth_HeatIndex'] = struct.unpack_from('H', t, 92)[0]
+    wxMinMax['maxYear_HeatIndex'] = struct.unpack_from('H', t, 94)[0]
+    wxMinMax['maxTime_HeatIndex'] = unpackTime(t, 90)
+    wxMinMax['minDay_HumOut'] = struct.unpack_from('B', t, 277)[0]
+    wxMinMax['maxDay_HumOut'] = struct.unpack_from('B', t, 285)[0]
+    wxMinMax['minMonth_HumOut'] = struct.unpack_from('B', t, 333)[0]
+    wxMinMax['maxMonth_HumOut'] = struct.unpack_from('B', t, 325)[0]
+    wxMinMax['minYear_HumOut'] = struct.unpack_from('B', t, 349)[0]
+    wxMinMax['maxYear_HumOut'] = struct.unpack_from('B', t, 341)[0]
+    wxMinMax['minTime_HumOut'] = unpackTime(t, 293)
+    wxMinMax['maxTime_HumOut'] = unpackTime(t, 309)
+    wxMinMax['minDay_TempIn'] = struct.unpack_from('H', t, 24)[0] / 10.0
+    wxMinMax['maxDay_TempIn'] = struct.unpack_from('H', t, 22)[0] / 10.0
+    wxMinMax['minMonth_TempIn'] = struct.unpack_from('H', t, 30)[0] / 10.0
+    wxMinMax['maxMonth_TempIn'] = struct.unpack_from('H', t, 32)[0] / 10.0
+    wxMinMax['minYear_TempIn'] = struct.unpack_from('H', t, 34)[0] / 10.0
+    wxMinMax['maxYear_TempIn'] = struct.unpack_from('H', t, 36)[0] / 10.0
+    wxMinMax['maxTime_TempIn'] = unpackTime(t, 26)
+    wxMinMax['minTime_TempIn'] = unpackTime(t, 28)
+    wxMinMax['minDay_HumIn'] = struct.unpack_from('B', t, 39)[0]
+    wxMinMax['maxDay_HumIn'] = struct.unpack_from('B', t, 38)[0]
+    wxMinMax['minMonth_HumIn'] = struct.unpack_from('B', t, 45)[0]
+    wxMinMax['maxMonth_HumIn'] = struct.unpack_from('B', t, 44)[0]
+    wxMinMax['minYear_HumIn'] = struct.unpack_from('B', t, 47)[0]
+    wxMinMax['maxYear_HumIn'] = struct.unpack_from('B', t, 46)[0]
+    wxMinMax['minTime_HumIn'] = unpackTime(t, 42)
+    wxMinMax['maxTime_HumIn'] = unpackTime(t, 40)
+    wxMinMax['minDay_Dewpoint'] = struct.unpack_from('H', t, 64)[0] / 1.0
+    wxMinMax['maxDay_Dewpoint'] = struct.unpack_from('H', t, 66)[0] / 1.0
+    wxMinMax['minMonth_Dewpoint'] = struct.unpack_from('H', t, 74)[0] / 1.0
+    wxMinMax['maxMonth_Dewpoint'] = struct.unpack_from('H', t, 72)[0] / 1.0
+    wxMinMax['minYear_Dewpoint'] = struct.unpack_from('H', t, 78)[0] / 1.0
+    wxMinMax['maxYear_Dewpoint'] = struct.unpack_from('H', t, 76)[0] / 1.0
+    wxMinMax['minTime_Dewpoint'] = unpackTime(t, 68)
+    wxMinMax['maxTime_Dewpoint'] = unpackTime(t, 70)
+    wxMinMax['maxHour_RainRate'] = round(struct.unpack_from('H', t, 121)[0] * 0.01, 2)
+    wxMinMax['maxDay_RainRate'] = round(struct.unpack_from('H', t, 117)[0] * 0.01, 2)
+    wxMinMax['maxMonth_RainRate'] = round(struct.unpack_from('H', t, 123)[0] * 0.01, 2)
+    wxMinMax['maxYear_RainRate'] = round(struct.unpack_from('H', t, 125)[0] * 0.01, 2)
+    j = struct.unpack_from('H', t, 119)[0]
+    if j == 65535:
+        wxMinMax['maxTime_RainRate'] = '00:00'
+    else:
+        wxMinMax['maxTime_RainRate'] = unpackTime(t, 119)
+    gv.wxMinMax = wxMinMax
+    print(cc['ups'] + 'wxMinMax updated' + cc['e'])
+    return 1
 
 # CCITT-16 CRC implementation, function should return 0
 def CRC(inputData):

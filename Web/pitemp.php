@@ -1,6 +1,6 @@
-<?php // pitemp.php v2.0.20240218.1118
+<?php // pitemp.php v2.0.20240305.2109
 include $_SERVER['DOCUMENT_ROOT'].'/includes/include.php';
-// PHP7 does some weird shit with floats and JSON so we need to ini_set precisions. [Done here because of remote hosting possibly ignoring custom php.ini and .htaccess modifications]
+// PHP7 does weird things with floats and JSON so we need to ini_set precisions. [Done here because of remote hosting possibly ignoring custom php.ini and .htaccess modifications]
 ini_set('precision', -1);
 ini_set('serialize_precision', -1);
 
@@ -94,6 +94,7 @@ function house_index() {
             }
             $tempout[] = ($context['user']['is_admin'] && isset($tempdata['ch']) ? 'Sensor '.($tempdata['ch'] ? $tempdata['p'] + 8 : $tempdata['p']).': ' : '').$tempdata['name'].': '.$tempdata['temp']['f'].'&#176;F, '.$tempdata['temp']['c'].'&#176;C';
         }
+        $data['ups']['enable'] = 0; // Stopgap - there is no UPS right now. But maybe someday there will be so I'll leave the various code segments here for then. Yay undefined vars!
         $return = '<br />
 <span class="notice">'.date('F j, Y H:i:s', strtotime($data['date']['s'])).'</span><br />'.($oldData ? '
 <span class="pagedesc">No data from RPi in over 15 minutes</span><br />' : '').(isset($noteout) ? '
@@ -107,18 +108,27 @@ Power Source: AC Mains (UPS Disabled)<br />').'
 Last recorded AC power loss: '.$data['backup']['powerlastoff'].', '.($data['backup']['power1'] ? 'on since '.$data['backup']['powerlaston'] : ', ongoing (last on: '.$data['backup']['powerlaston'].')').'<br />
 <span class=notice2>HVAC Status:</span><br />
 '.implode('<br />', (isset($sysout1) ? array(implode('<br />', $sysout1), implode('<br />', $sysout2)) : $sysout2)).'<br />
-<span class="notice2">Temperatures:</span><br />
+<span class="notice2">TMP36 Sensor Temperatures:</span><br />
 '.implode ('<br />
 ', $tempout).'<br />'.($data['ups']['enable'] ? '
 System UPS Battery: '.round((($data['ups']['data']['main']['battTempC'] * 1.8) + 32), 1).'&#176;F, '.$data['ups']['data']['main']['battTempC'].'&#176;C<br />' : '').($tskip ? '
 '.$tskip.' sensors skipped due to not being in use<br />
-<span class="notice2">Weather Center (Updated '.$wxData['now_s'].'):</span><br />'.($context['user']['is_admin'] && !$data['setting']['wx'] ? '
-<span class="pagedesc">Weather center checks have been disabled due to multiple failures.</span><br />' : '').'
+<span class="notice2">Weather Center (Updated '.$wxData['now_s'].'):</span><br />'.(!$data['setting']['wx'] ? '
+<span class="pagedesc">Weather center checks have been disabled due to multiple failures.</span><br />' : '').($wxData['ISSerror'] ? '
+<span class="pagedesc">ISS connection error, check cable!</span><br />' : '').'
 Outside Temp, Humidity: '.$wxData['tempOut'].'&#176;F, '.$wxData['humOut'].'%'.($wxData['heatIndex'] > $wxData['tempOut'] + 3 ? ' -- Heat Index: '.$wxData['heatIndex'].'&#176;F' : '').'<br />
 Inside Temp, Humidity: '.$wxData['tempIn'].'&#176;F, '.$wxData['humIn'].'%<br />
-Wind (10 minute average): '.$wxData['windNow_dir'].'&#176; '.$wxData['windNow_car'].' at '.$wxData['windAvg10_mph'].'mph '.($wxData['windGust10_mph'] > $wxData['windAvg10_mph'] ? 'gusting to '.$wxData['windGust10_mph'].'mph' : '').($wxData['windChill'] < $wxDATA['tempOut'] - 3 ? ' -- Wind Chill: '.$wxData['windChill'].'&#176;F' : '').'<br />'.($wxData['rain24hr'] ? '
+Barometric Pressure: '.$wxData['baro_InHg'].'inHg -- '.$wxData['baroTrend'].'<br />
+Wind (10 minute average): '.$wxData['windNow_dir'].'&#176; '.$wxData['windNow_car'].' at '.$wxData['windAvg10_mph'].'mph '.($wxData['windGust10_mph'] > $wxData['windAvg10_mph'] ? 'gusting to '.$wxData['windGust10_mph'].'mph' : '').($wxData['windChill'] < $wxDATA['tempOut'] - 1 ? ' -- Wind Chill: '.$wxData['windChill'].'&#176;F' : '').'<br />'.($wxData['rain24hr'] ? '
 Rain Inches (last 15min, 1hr, 24hr): '.round($wxData['rain15min'], 2).', '.round($wxData['rain60min'], 2).', '.round($wxData['rain24hr'], 2).($wxData['rainRate'] ? ', currently raining at '.round($wxData['rainRate'], 2).'in/hr' : '').'<br />' : '').'
 Rain Today: '.round($wxData['rainD'], 2).'in -- This month: '.round($wxData['rainM'], 2).'in -- This year: '.round($wxData['rainY'], 2).'in<br />
+<span class="wxhl">Today\'s Highs</span><br />
+Outside Temp, Humidity: <span title="'.$data['wx']['minmax']['maxTime_TempOut'].'">'.$data['wx']['minmax']['maxDay_TempOut'].'&#176;F</span>, <span title="'.$data['wx']['minmax']['maxTime_HumOut'].'">'.$data['wx']['minmax']['maxDay_HumOut'].'%</span>'.($data['wx']['minmax']['maxDay_HeatIndex'] > $data['wx']['minmax']['maxDay_TempOut'] + 1 ? ', Heat Index <span title="'.$data['wx']['minmax']['maxTime_HeatIndex'].'">'.$data['wx']['minmax']['maxDay_HeatIndex'].'&#176;F</span>' : '').'<br />
+Wind speed: <span title="'.$data['wx']['minmax']['maxTime_Wind'].'">'.$data['wx']['minmax']['maxDay_Wind'].'mph</span>, Rain Rate: <span title="'.$data['wx']['minmax']['maxTime_RainRate'].'">'.$data['wx']['minmax']['maxDay_RainRate'].'</span><br />
+Inside Temp, Humidity: <span title="'.$data['wx']['minmax']['maxTime_TempIn'].'">'.$data['wx']['minmax']['maxDay_TempIn'].'&#176;F</span>, <span title="'.$data['wx']['minmax']['maxTime_HumIn'].'">'.$data['wx']['minmax']['maxDay_HumIn'].'%</span><br />
+<span class="wxhl">Today\'s Lows</span><br />
+Outside Temp, Humidity: <span title="'.$data['wx']['minmax']['minTime_TempOut'].'">'.$data['wx']['minmax']['minDay_TempOut'].'&#176;F</span>, <span title="'.$data['wx']['minmax']['minTime_HumOut'].'">'.$data['wx']['minmax']['minDay_HumOut'].'%</span><br />
+Inside Temp, Humidity: <span title="'.$data['wx']['minmax']['minTime_TempIn'].'">'.$data['wx']['minmax']['minDay_TempIn'].'&#176;F</span>, <span title="'.$data['wx']['minmax']['minTime_HumIn'].'">'.$data['wx']['minmax']['minDay_HumIn'].'%</span><br />
 <br /><a href="pitemp.php?do=about">About this page</a><br />' : '');
 
     } else
@@ -167,14 +177,22 @@ function house_logFromPi() {
     $ins = mysqli_real_escape_string($ak['mysqli'], json_encode($post));
     $result = mysqli_query($ak['mysqli'], "REPLACE INTO `$house[db]`.`site` (`setting`, `value`) VALUES ('piTempActive', '".$post['date']['u']."'), ('piTempReceivedData', '$ins')");
     if (!$result)
-        AKerr('fuck me! '.mysqli_error($ak['mysqli']));
+        AKerr('Error saving RPi main data dump: '.mysqli_error($ak['mysqli']), 'fatal');
+    $tsave = array(
+        'out' => $post['tempdata'][0]['temp']['f'],
+        'in' => $post['tempdata'][2]['temp']['f'],
+        'att' => $post['tempdata'][8]['temp']['f'],
+        'vent' => $post['tempdata'][3]['temp']['f'],
+        'wxo' => $post['wx']['data']['tempOut'],
+        'wxi' => $post['wx']['data']['tempIn'],
+    );
 
     foreach($house['sys'] as $h) {
         // Any HVAC system status changes?
         if (($post['backup']['hvac'][$h]['stat'] == 0 && $post['date']['s'] == $post['backup']['hvac'][$h]['lastoff'] && $post['backup']['hvac'][$h]['lastoff'] !== 0) || ($post['backup']['hvac'][$h]['stat'] == 1 && $post['date']['s'] == $post['backup']['hvac'][$h]['laston'] && $post['backup']['hvac'][$h]['laston'] !== 0)) {
             if ($h == 'hfan' && $post['backup']['hvac']['ac']['stat']) // Honeywell thermostat switches on A/C then HFan, switches off HFan then A/C. So do not log HFan to MySQL if A/C is on.
                 continue;
-            $data[] = array( 'date' => $post['date']['u'], 'sys' => $h, 'stat' => $post['backup']['hvac'][$h]['stat'], 'comment' => ($post['backup']['power1'] ? 0 : 'No AC Power, System Not Active') );
+            $data[] = array( 'date' => $post['date']['u'], 'sys' => $h, 'stat' => $post['backup']['hvac'][$h]['stat'], 'comment' => json_encode($tsave).($post['backup']['power1'] ? '' : ' -- No AC Power, System Not Active') );
         } else {
         // Possible a system change will be missed by data not being properly sent to the site. We can potentially recover and add the most recent changes.
             foreach(array(0, 1) as $ss) {
@@ -186,7 +204,7 @@ function house_logFromPi() {
                     }
                     $dbe = mysqli_fetch_assoc(mysqli_query($ak['mysqli'], "SELECT * FROM `$house[db]`.`house_hvacStatusLog` WHERE `date` = '".strtotime($post['backup']['hvac'][$h][($ss ? 'laston' : 'lastoff')])."' AND `sys` = '$h' AND `stat` = '$ss'"));
                     if (!$dbe) { // Looks like we need to add this entry.
-                        $data[] = array( 'date' => strtotime($post['backup']['hvac'][$h][($ss ? 'laston' : 'lastoff')]), 'sys' => $h, 'stat' => $ss, 'comment' => 0 );
+                        $data[] = array( 'date' => strtotime($post['backup']['hvac'][$h][($ss ? 'laston' : 'lastoff')]), 'sys' => $h, 'stat' => $ss, 'comment' => 'Recovered save' );
                     }
                 }
             }
@@ -218,7 +236,7 @@ function house_logFromPi() {
         $query .= implode(', ', $queryins);
         $result = mysqli_query($ak['mysqli'], $query);
         if (!$result)
-            AKerr('fuck me again! '.mysqli_error($ak['mysqli']));
+            AKerr('Error saving data to house status change table: '.mysqli_error($ak['mysqli']), 'fatal');
     }
     die(AKfooter(1)); // This doesn't need any output returned to the source.
 }
@@ -244,14 +262,14 @@ function house_logWxFromPi() { // A lot simpler than the HVAC stuff because we'r
     $ins = mysqli_real_escape_string($ak['mysqli'], json_encode($post));
     $result = mysqli_query($ak['mysqli'], "REPLACE INTO `$house[db]`.`site` (`setting`, `value`) VALUES ('piWxReceivedData', '$ins')");
     if (!$result)
-        die(AKerr(mysqli_error($ak['mysqli'])));
+        die(AKerr(mysqli_error($ak['mysqli']), 'fatal'));
     die(AKfooter(1)); // This doesn't need any output returned to the source.
 }
 
 function house_viewSysHistory() {
-    global $ak, $house;
+    global $ak, $house, $context;
 
-    $query = mysqli_query($ak['mysqli'], "SELECT * FROM `$house[db]`.`house_hvacStatusLog` ORDER BY `date` DESC LIMIT 500");
+    $query = mysqli_query($ak['mysqli'], 'SELECT * FROM `'.$house['db'].'`.`house_hvacStatusLog` ORDER BY `date` DESC'.($_GET['showall'] && $context['user']['is_admin'] ? '' : ' LIMIT 500'));
     while ($h = mysqli_fetch_assoc($query)) {
         $data[$h['sys']][] = $h;
     }
@@ -296,15 +314,19 @@ function house_viewSysHistory() {
     </tr>
 </table>';
 
-    return array( 'data' => $html ); // .'<br />'.nl2br(str_replace(' ', '&nbsp', print_r(array('data' => $data, 'output' => $output), 1)))
+    return array( 'data' => $html );
 }
 
 function house_viewAllWeatherData() {
     global $ak, $house, $context;
     list($wxData) = mysqli_fetch_row(mysqli_query($ak['mysqli'], "SELECT `value` FROM `$house[db]`.`site` WHERE `setting` = 'piWxReceivedData'"));
+    list($wxMinMax) = mysqli_fetch_row(mysqli_query($ak['mysqli'], "SELECT `value` FROM `$house[db]`.`site` WHERE `setting` = 'piTempReceivedData'"));
     $wxData = json_decode($wxData, 1);
+    $s = json_decode($wxMinMax, 1);
+    $wxMinMax = $s['wx']['minmax'];
+    ksort($wxMinMax);
     ksort($wxData);
-    return array( 'data' => nl2br(print_r($wxData,1)));
+    return array( 'data' => nl2br(str_replace(' ','&nbsp',print_r(array($wxData,$wxMinMax),1))));
 }
 
 // Change remote RPi variables

@@ -2,13 +2,7 @@
 # data to SSD1306-compliant displays, and log data to file + send to my website
 # This script has been written for Python 2.7
 # Author: AK49BWL
-# Updated: 02/18/2024 12:23
-
-# RPi's role in the system: Receiver, Relay, or Controller // For future use, if we ever decide to make this Pi actually control the HVAC system
-# Receiver: Pi is in control of the attic fans, only receiving HVAC system control commands from the HVAC system's thermostat
-# Relay: Pi is in control of the HVAC system, acting as a relay between the HVAC system's thermostat and the system itself
-# Controller: Pi is in COMPLETE control of the HVAC system with no outside thermostat input
-piRole = 'Receiver'
+# Updated: 03/05/2024 21:13
 
 # Imports!
 import Adafruit_GPIO.SPI as SPI
@@ -28,6 +22,9 @@ import smbus
 import struct
 import threading
 import time
+
+# RPi's role in the HVAC system: Receiver, Relay, or Controller
+piRole = 'Receiver'
 
 # Modules?
 import daviswx # Davis Vantage Pro2 weather center
@@ -72,23 +69,18 @@ backup = {
 timer = {
     'cmd': 10, # Main output to console
     'temp': 30, # Temp sensor reads
-    'ups': 10, # UPS power status read (for AC Power on/off)
-    'ups_all': 120, # Read all UPS data
-    'shutdown': 1800, # Wait before shutting down Pi in the event of a power outage --- If power isn't back in 30 minutes, go ahead and shut 'er down.
     'file': 300, # File writes for temp/HVAC data
     'web': 300, # Website data sends
     'loadwebvars': 300, # Update variables from website and repopulate settings dict
     'chkattic': 300, # Checking attic temp for fan toggle
     'display': 60, # Display screens timeout
     'disp_upd': 5, # Display screens update
-    'wx': 300,
+    'wx': 300, # Weather Center loop read
+    'wxminmax': 12, # decreases on run of wxloop, therefore a value of 12 will run wxminmax every hour if wx is set to 300 (5 minutes)
 }
 dec = { # Decrement vars for timers
     'cmd': 0,
     'temp': 0,
-    'ups': 0,
-    'ups_all': 0,
-    'shutdown': timer['shutdown'], # We don't want this to start counting down unless there's a power outage
     'file': 0,
     'web': 0,
     'loadwebvars': 150, # Offset this guy from the other 5 minute timers lol
@@ -96,40 +88,46 @@ dec = { # Decrement vars for timers
     'display': timer['display'],
     'disp_upd': 0,
     'wx': 0,
+    'wxminmax': 0,
 }
 disp = SSD1306(rst=None, i2c_bus = 1, i2c_address=0x3C) # Set up our 128x64 screens
 displays = 5 # Number of screens
-i2cmulti_reset_pin = 4 # GPIO pin for resetting I2C multiplexer
-pca3548a=[0b00000001,0b00000010,0b00000100,0b00001000,0b00010000,0b00100000,0b01000000,0b10000000] # I2C Multplexer channels
-disp_act_pin = 25 # GPIO pin for button to activate displays
+i2cmulti_reset_pin = 4 # Physical pin 7: GPIO pin for resetting I2C multiplexer
+pca3548a=[0b00000001,0b00000010,0b00000100,0b00001000,0b00010000,0b00100000,0b01000000,0b10000000] # I2C Multiplexer channels
+disp_act_pin = 25 # Physical pin 22: GPIO pin for button to activate displays
 font = ImageFont.load_default() # SSD1306 screen text font
-ups = { 'enable': 0 } # Bypass due to much of the UPS code being removed...
 
 # Init
-do_log = 1
-notesi = 1
 notes = { 0: 'thermo.py has just started up' } # This message will only be sent on first run
+notesi = 1
+do_log = 1
 display_off = 0
 wxdtu = 0 # Weather center update unixtime
 
 # Hardware SPI configuration:
 mcp0 = MCP3008(spi=SPI.SpiDev(0, 0)) # SPI Port 0, Device 0
 mcp1 = MCP3008(spi=SPI.SpiDev(0, 1)) # SPI Port 0, Device 1
-GPIO.setwarnings(False) # Disable errors caused by script restarts...
-GPIO.setmode(GPIO.BCM) # Use Broadcom Pin Numbering rather than the Board Physical Pin Numbering
-# Attic fans are controlled by the Pi so we'll use physical pin 40 (GPIO 21) for the relay coil output.
-# Original HVAC thermostat is still in control of the HVAC system so we're just receiving its triggers.
-# Use physical pins 11, 13, 15 (GPIO 17, 27, 22) for A/C, Heat, HFan status receive with pulldown resistors.
+
+# Attic fans are controlled exclusively by the Pi so we'll use physical pin 40 (GPIO 21) for the relay coil output
+# In Receiver and Relay modes, original HVAC thermostat controls the HVAC system so we're receiving its triggers
+# Use physical pins 11, 13, 15 (GPIO 17, 27, 22) for A/C, Heat, HFan status receive from the thermostat with pulldown resistors
+# In Relay and Controller modes, the Pi will be in control of the output to the HVAC system
+# Use physical pins 29, 31, 33 (GPIO 5, 6, 13) for A/C, Heat, HFan control
 hvac = {
-    'ac':   { 'pin': 17, 'stat': 0 if not bkp else bkp['hvac']['ac']['stat'],   'laston': 0 if not bkp else bkp['hvac']['ac']['laston'],   'lastoff': 0 if not bkp else bkp['hvac']['ac']['lastoff'],   'name': 'A/C' },
-    'heat': { 'pin': 27, 'stat': 0 if not bkp else bkp['hvac']['heat']['stat'], 'laston': 0 if not bkp else bkp['hvac']['heat']['laston'], 'lastoff': 0 if not bkp else bkp['hvac']['heat']['lastoff'], 'name': 'Heater' },
-    'hfan': { 'pin': 22, 'stat': 0 if not bkp else bkp['hvac']['hfan']['stat'], 'laston': 0 if not bkp else bkp['hvac']['hfan']['laston'], 'lastoff': 0 if not bkp else bkp['hvac']['hfan']['lastoff'], 'name': 'HVAC Blower' },
-    'afan': { 'pin': 21, 'stat': 0 if not bkp else bkp['hvac']['afan']['stat'], 'laston': 0 if not bkp else bkp['hvac']['afan']['laston'], 'lastoff': 0 if not bkp else bkp['hvac']['afan']['lastoff'], 'name': 'Attic Fan' }
+    'ac':   { 'rpin': 17, 'tpin': 0,  'stat': 0 if not bkp else bkp['hvac']['ac']['stat'],   'laston': 0 if not bkp else bkp['hvac']['ac']['laston'],   'lastoff': 0 if not bkp else bkp['hvac']['ac']['lastoff'],   'name': 'A/C' },
+    'heat': { 'rpin': 27, 'tpin': 0,  'stat': 0 if not bkp else bkp['hvac']['heat']['stat'], 'laston': 0 if not bkp else bkp['hvac']['heat']['laston'], 'lastoff': 0 if not bkp else bkp['hvac']['heat']['lastoff'], 'name': 'Heater' },
+    'hfan': { 'rpin': 22, 'tpin': 0,  'stat': 0 if not bkp else bkp['hvac']['hfan']['stat'], 'laston': 0 if not bkp else bkp['hvac']['hfan']['laston'], 'lastoff': 0 if not bkp else bkp['hvac']['hfan']['lastoff'], 'name': 'HVAC Blower' },
+    'afan': { 'rpin': 0,  'tpin': 21, 'stat': 0 if not bkp else bkp['hvac']['afan']['stat'], 'laston': 0 if not bkp else bkp['hvac']['afan']['laston'], 'lastoff': 0 if not bkp else bkp['hvac']['afan']['lastoff'], 'name': 'Attic Fan' }
 }
-GPIO.setup(hvac['afan']['pin'], GPIO.OUT)
-GPIO.setup(hvac['hfan']['pin'], GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
-GPIO.setup(hvac['ac']['pin'], GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
-GPIO.setup(hvac['heat']['pin'], GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
+hvs = ['ac', 'heat', 'hfan', 'afan']
+# Do GPIO setup
+GPIO.setwarnings(False) # Disable errors caused by script restarts
+GPIO.setmode(GPIO.BCM) # Use Broadcom Pin Numbering rather than the Board Physical Pin Numbering
+for h in hvs:
+    if hvac[h]['rpin']:
+        GPIO.setup(hvac[h]['rpin'], GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
+    if hvac[h]['tpin']:
+        GPIO.setup(hvac[h]['tpin'], GPIO.OUT)
 GPIO.setup(disp_act_pin, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
 
 # Set up temperature sensor data (Names, Chip and Pin numbers, Enable, dynamic temperature data array, voltage error correction)
@@ -268,16 +266,19 @@ def webvarloader():
 # Turn on or off one system
 def turn_on_off(sys, on = 0):
     global hvac, notes, notesi, do_log
+    if not hvac[sys]['tpin']:
+        print(cc['cer'] + hvac[sys]['name'] + ' does not have a GPIO transmit pin designation!!!' + cc['e'])
+        return 0
     # Is the output already in the desired position??? The system status var needs updating!
-    if (GPIO.input(hvac[sys]['pin']) and on) or (not GPIO.input(hvac[sys]['pin']) and not on):
+    if (GPIO.input(hvac[sys]['tpin']) and on) or (not GPIO.input(hvac[sys]['tpin']) and not on):
         print(cc['err'] + hvac[sys]['name'] + ' is already ' + ('on' if on else 'off') + '!' + cc['e'])
-        hvac[sys]['stat'] = 1 if GPIO.input(hvac[sys]['pin']) else 0
+        hvac[sys]['stat'] = 1 if GPIO.input(hvac[sys]['tpin']) else 0
         return 0
     # But wait... Is the system in question even enabled?
     if setting['hvac'][sys]:
         print(cc['trn'] + 'Turning ' + hvac[sys]['name'] + ' ' + ('on' if on else 'off') + cc['e'])
-        GPIO.output(hvac[sys]['pin'], GPIO.HIGH if on else GPIO.LOW)
-        hvac[sys]['stat'] = 1 if GPIO.input(hvac[sys]['pin']) else 0
+        GPIO.output(hvac[sys]['tpin'], GPIO.HIGH if on else GPIO.LOW)
+        hvac[sys]['stat'] = 1 if GPIO.input(hvac[sys]['tpin']) else 0
         hvac[sys]['laston' if hvac[sys]['stat'] else 'lastoff'] = now['s']
         notes[notesi] = hvac[sys]['name'] + ' turned ' + ('on' if on else 'off')
         notesi += 1
@@ -285,11 +286,13 @@ def turn_on_off(sys, on = 0):
 
 # Update system status
 def update_on_off():
-    global hvac, notes, notesi, do_log
-    for s in ['ac', 'heat', 'hfan', 'afan']:
-        if (hvac[s]['stat'] and not GPIO.input(hvac[s]['pin'])) or (not hvac[s]['stat'] and GPIO.input(hvac[s]['pin'])):
+    global notes, notesi, do_log
+    for s in hvs:
+        if not hvac[s]['rpin']:
+            continue
+        if (hvac[s]['stat'] and not GPIO.input(hvac[s]['rpin'])) or (not hvac[s]['stat'] and GPIO.input(hvac[s]['rpin'])):
             # Update system var and lastx then log the change
-            hvac[s]['stat'] = 1 if GPIO.input(hvac[s]['pin']) else 0
+            hvac[s]['stat'] = 1 if GPIO.input(hvac[s]['rpin']) else 0
             hvac[s]['laston' if hvac[s]['stat'] else 'lastoff'] = now['s']
             print(cc['trn'] + hvac[s]['name'] + ' has turned ' + ('on' if hvac[s]['stat'] else 'off') + cc['e'])
             notes[notesi] = hvac[s]['name'] + ' has turned ' + ('on' if hvac[s]['stat'] else 'off')
@@ -329,8 +332,10 @@ def log_stat(to_file = 0, to_web = 0, customtext = 0):
             'notes': notes,
             'setting': setting,
             'tempdata': sensor,
-            'ups': ups,
-            'wx': gv.wxData,
+            'wx': {
+                'data': gv.wxData,
+                'minmax': gv.wxMinMax,
+            }
         }
         threading.Thread(target=logToWebThr, args=(webdata,)).start() # Fire away fro fro fro fro from this place that we call home...
         dec['web'] = timer['web']
@@ -358,7 +363,7 @@ def rotatelogs():
     print(cc['fbu'] + 'Log File gzipped and erased' + cc['e'])
 
 # Get weather center data
-def wxloop():
+def wxloop(minmax = 0):
     try:
         gv.wx = daviswx.openWxComm()
         thing = daviswx.readWxData()
@@ -370,6 +375,10 @@ def wxloop():
             logToWeb(senddata = gv.wxData, dest = 'wxd')
             gv.wxFail = 0
             setting['wx'] = 1
+            if minmax:
+                daviswx.readWxHL()
+                gv.wxMinMax['now_s'] = now['s']
+                gv.wxMinMax['now_u'] = now['u']
             return 1
     except (serial.SerialException, TypeError, NameError) as e:
         print(cc['cer'] + 'Wx broke: ' + str(e) + cc['e'])
@@ -379,7 +388,6 @@ def wxloop():
     if gv.wxFail >= 10: # If weather center is not responding for an extended period, just stop trying until the problem is fixed
         print(cc['cer'] + 'Weather center data check disabled due to multiple failures' + cc['e'])
         setting['wx'] = 0
-
 
 # Switch between the (T/P)CA3548A I2C Multiplexer channels and reset
 def i2cmulti_switch(mp_addr = 0x70, i2c_chan = 0):
@@ -452,13 +460,19 @@ while 1:
     if not dec['wx']:
         dec['wx'] = timer['wx']
         if firstrun:
-            wxloop() # No subthread for the first run
+            wxloop(minmax = 1) # No subthread for the first run, and we want all the data
+            dec['wxminmax'] = timer['wxminmax']
         elif setting['wx']:
-            threading.Thread(target=wxloop).start()
+            if not dec['wxminmax']:
+                threading.Thread(target=wxloop, args=({'minmax': 1},)).start()
+                dec['wxminmax'] = timer['wxminmax']
+            else:
+                threading.Thread(target=wxloop).start()
+        dec['wxminmax'] -= 1
     dec['wx'] -= 1
 
     # Check status of HVAC systems
-    update_on_off()
+    updates = update_on_off()
 
     # Temperature stuff
     if not dec['temp']:
@@ -480,16 +494,16 @@ while 1:
         sensor[cpusens]['temp']['c'] = values['c'][cpusens] = round(CPUTemperature().temperature, 1)
         sensor[cpusens]['temp']['f'] = values['f'][cpusens] = round((values['c'][cpusens] * 1.8) + 32, 1)
 
-        # If weather center data is up-to-date within a 15 minute leeway, use its inside and outside temperatures for HVAC system checks
-        if wxdtu > now['u'] - 900:
-            t_out = gv.wxData['tempOut']
+        # If weather center data is up-to-date within a 15 minute leeway, use its inside and outside temperatures for HVAC system checks... If it's receiving data from the outdoor unit!
+        if wxdtu > now['u'] - 900 and not gv.wxData['ISSerror']:
+            t_out = gv.wxData['tempOut'] if gv.wxData['tempOut'] < 3200 else pr_f
             t_in = gv.wxData['tempIn']
             t_use = 'Davis Weather Center'
 
     if not dec['cmd']:
         print(now['s'] + ' -- Pi Uptime: ' + str(datetime.timedelta(seconds=now['sut'])) + ' -- Script Runtime: ' + str(datetime.timedelta(seconds=now['u'] - now['scr'])) + ' -- CPU Temp: ' + str(values['c'][cpusens]) + '*C (' + str(values['f'][cpusens]) + '*F)')
 
-    # Attic fan activator
+    # Check attic temp for fans
     if not dec['chkattic']:
         dec['chkattic'] = timer['chkattic']
         if not hvac['afan']['stat']:
@@ -532,27 +546,22 @@ while 1:
             dispdata = {}
             for d in range(displays):
                 dispdata[d] = {0:0,1:0,2:0,3:0,4:0,5:0,6:0,7:0} # All variables will have data, even if they won't be displayed.
-            # Screen 1 will give us the date and time, Pi CPU Temp, and UPS data
+            # Screen 1 will give us the date and time, Pi CPU Temp
             dispdata[0][0] = now['s']
             dispdata[0][2] = 'Pi: ' + str(sensor[cpusens]['temp']['c']) + '*C (' + str(sensor[cpusens]['temp']['f']) + '*F)'
-            # Only display this info if the UPS is enabled
-            if ups['enable']:
-                dispdata[0][4] = ('UPS Data Error' if i2cnr else 'AC Power: ') + 'On' if backup['power1'] else 'Off'
-                dispdata[0][6] = 'Battery: ' + str(ups['data']['bat']['v']) + ' V'
-                dispdata[0][7] = 'Current: ' + str(ups['data']['bat']['a']) + ' mA'
             # We'll use screens 2 and 3 to output all the temperature sensor data
             for d in range(1, 3):
                 for e in range(8):
                     dispdata[d][e] = str(sensor[e if d == 1 else e + 8]['dispname']) + ': ' + str('--' if pr_f[e if d == 1 else e + 8] <= -50 else pr_f[e if d == 1 else e + 8])
             # Screen 4 will show HVAC status
             e = 0
-            for s in ['ac', 'heat', 'hfan', 'afan']:
+            for s in hvs:
                 dispdata[3][e] = hvac[s]['name'] + ' is ' + ('on' if hvac[s]['stat'] else 'off')
                 dispdata[3][e+1] = 'Last ' + ('off' if hvac[s]['stat'] else 'on')
                 e += 2
             # Screen 5 will show recent HVAC runtimes
             e = 0
-            for s in ['ac', 'heat', 'hfan', 'afan']:
+            for s in hvs:
                 dispdata[4][e] = hvac[s]['laston' if hvac[s]['stat'] else 'lastoff']
                 dispdata[4][e+1] = hvac[s]['lastoff' if hvac[s]['stat'] else 'laston']
                 e += 2

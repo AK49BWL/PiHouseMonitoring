@@ -1,3 +1,33 @@
+03/05/2024
+thermo.py:
+-- Changed HVAC system pin designations to rpin (receive from external thermostat pin) and tpin (transmit to relay coil pin)
+-- HVAC system for loop cleanups (var 'hvs' created)
+-- HVAC system pin GPIO setup is now done in a for loop rather than individually
+-- Removed all MakerHawk UPS+ related code
+-- Added daviswx.readWxHL() to wxloop()
+>>> Timer to read HiLows data is set to one hour
+daviswx.py:
+-- Added readWxHL() based on Wospi hiLows() code
+gv.py:
+-- Added wxMinMax global variable
+pitemp.php:
+-- Added ability to show all recorded HVAC system change events using do=viewSysHistory;showall=1 (admin only)
+-- Added HiLows to Index
+-- UPS code disabled for now via hardcoded variable...
+
+03/03/2024
+pitemp.php:
+-- Added temperature reads to comments in MySQL saves of HVAC system changes
+-- Lowered wind chill display threshold from 3 to 1 degree
+
+02/24/2024
+thermo.py:
+-- Revert back to TMP36 sensors for HVAC system checks if the weather center's ISS is not responding
+daviswx.py:
+-- set wxData['ISSerror'] if temperature reads too high (over 212, weather center responds showing temp as 3276.7*F and humidity as 0%)
+pitemp.php:
+-- Show error if weather center ISS is not responding
+
 02/18/2024
 thermo.py:
 -- Combined all no-response website sends into one function
@@ -24,6 +54,10 @@ thermo.py:
 -- Integrating Davis weather center code lets us use more accurate temperature readings for inside and outside
 >>> Modified Attic Fans on/off checking code to use new temperature variables
 >>> Weather center data must be at most 15 minutes old to use, otherwise fall back to TMP36 sensors
+-- Added 'piRole' variable to allow for various HVAC system control methods (it doesn't actually do anything yet, just a placeholder for later)
+>>> Receiver: Pi only receives system state changes commanded by an external thermostat and logs them
+>>> Relay: The Pi has control over the actual HVAC system, but uses an external thermostat's commands as a reference
+>>> Controller: The Pi has full control over all aspects of the HVAC system with no external thermostat
 -- A few other small code changes
 daviswx.py:
 -- Now only contains functions relating to the Davis Vantage Pro2 weather center

@@ -1,6 +1,6 @@
 # Global variables for use across multiple modules
 # Author: AK49BWL
-# Updated: 02/18/2024 11:40
+# Updated: 03/05/2024 14:57
 
 import json
 
@@ -23,4 +23,5 @@ cc = { # Console text coloring
 webauth = json.loads(open('codes.json', 'r').read()) # PASSWORDS n stuff
 wx = 0
 wxData = {}
+wxMinMax = {}
 wxFail = 0
