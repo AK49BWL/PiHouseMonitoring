@@ -1,3 +1,14 @@
+03/16/2024
+arduino.py:
+-- Created for keeping functions related to Arduino projects
+>>> Added function to read serial data from the fridgetemp Arduino scripts
+
+03/10/2024
+fridgetemp-mux.ino, fridgetemp-2sens.ino:
+-- Created to read two AHT21 temperature sensors in my fridge/freezer and send the JSON-formatted data via serial upon request
+>>> mux suffix file reads from two sensors with a TCA9548A multiplexer, can use two sensors with the same I2C address (0x38)
+>>> 2sens suffix file reads from two sensors without a multiplexer, so needs two I2C addresses (0x38, 0x39)
+
 03/05/2024
 thermo.py:
 -- Changed HVAC system pin designations to rpin (receive from external thermostat pin) and tpin (transmit to relay coil pin)

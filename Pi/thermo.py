@@ -2,7 +2,7 @@
 # data to SSD1306-compliant displays, and log data to file + send to my website
 # This script has been written for Python 2.7
 # Author: AK49BWL
-# Updated: 03/05/2024 21:13
+# Updated: 03/05/2024 21:25
 
 # Imports!
 import Adafruit_GPIO.SPI as SPI
@@ -88,7 +88,7 @@ dec = { # Decrement vars for timers
     'display': timer['display'],
     'disp_upd': 0,
     'wx': 0,
-    'wxminmax': 0,
+    'wxminmax': timer['wxminmax'], # Runs on first loop
 }
 disp = SSD1306(rst=None, i2c_bus = 1, i2c_address=0x3C) # Set up our 128x64 screens
 displays = 5 # Number of screens
@@ -117,7 +117,7 @@ hvac = {
     'ac':   { 'rpin': 17, 'tpin': 0,  'stat': 0 if not bkp else bkp['hvac']['ac']['stat'],   'laston': 0 if not bkp else bkp['hvac']['ac']['laston'],   'lastoff': 0 if not bkp else bkp['hvac']['ac']['lastoff'],   'name': 'A/C' },
     'heat': { 'rpin': 27, 'tpin': 0,  'stat': 0 if not bkp else bkp['hvac']['heat']['stat'], 'laston': 0 if not bkp else bkp['hvac']['heat']['laston'], 'lastoff': 0 if not bkp else bkp['hvac']['heat']['lastoff'], 'name': 'Heater' },
     'hfan': { 'rpin': 22, 'tpin': 0,  'stat': 0 if not bkp else bkp['hvac']['hfan']['stat'], 'laston': 0 if not bkp else bkp['hvac']['hfan']['laston'], 'lastoff': 0 if not bkp else bkp['hvac']['hfan']['lastoff'], 'name': 'HVAC Blower' },
-    'afan': { 'rpin': 0,  'tpin': 21, 'stat': 0 if not bkp else bkp['hvac']['afan']['stat'], 'laston': 0 if not bkp else bkp['hvac']['afan']['laston'], 'lastoff': 0 if not bkp else bkp['hvac']['afan']['lastoff'], 'name': 'Attic Fan' }
+    'afan': { 'rpin': 21, 'tpin': 21, 'stat': 0 if not bkp else bkp['hvac']['afan']['stat'], 'laston': 0 if not bkp else bkp['hvac']['afan']['laston'], 'lastoff': 0 if not bkp else bkp['hvac']['afan']['lastoff'], 'name': 'Attic Fan' }
 }
 hvs = ['ac', 'heat', 'hfan', 'afan']
 # Do GPIO setup
@@ -461,7 +461,6 @@ while 1:
         dec['wx'] = timer['wx']
         if firstrun:
             wxloop(minmax = 1) # No subthread for the first run, and we want all the data
-            dec['wxminmax'] = timer['wxminmax']
         elif setting['wx']:
             if not dec['wxminmax']:
                 threading.Thread(target=wxloop, args=({'minmax': 1},)).start()
@@ -472,7 +471,7 @@ while 1:
     dec['wx'] -= 1
 
     # Check status of HVAC systems
-    updates = update_on_off()
+    update_on_off()
 
     # Temperature stuff
     if not dec['temp']:
