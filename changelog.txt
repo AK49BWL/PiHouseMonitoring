@@ -1,3 +1,26 @@
+05/30/2024
+thermo.py:
+-- Changed 'hvs' var, actually more sort of duplicated it into two entries that can be selected in the update_on_off function based on whether A/C is on or not
+>>> Hopefully this fixes erroneous logging of HFan to MySQL in pitemp.php...
+pitemp.php:
+-- Reverted 04/27/2024 changes (had no effect on server-side MySQL connection errors)
+-- Additional checks for HFan logging (or NOT logging, actually...)
+
+04/27/2024
+pitemp.php:
+-- Added mysqli_close() to hopefully mitigate "too many connections" errors...
+
+04/06/2024
+pitemp.php:
+-- Added JavaScript to HiLows section for unhiding/hiding time of data points on mouseover/mouseout
+-- Debugging
+
+03/29/2024
+thermo.py:
+-- Added ability to override temperature low limit to turn on attic fans to WebVars
+pitemp.php:
+-- Added afanTempOvr to WebVars (for above)
+
 03/16/2024
 arduino.py:
 -- Created for keeping functions related to Arduino projects
@@ -47,7 +70,7 @@ thermo.py:
 -- Various changes and fixes
 gv.py:
 -- Changes to console output colors
-pitemp:
+pitemp.php:
 -- Added wx to WebVars (for re-enabling weather center if it fails too many times)
 
 02/17/2024

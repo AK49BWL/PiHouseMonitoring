@@ -1,4 +1,4 @@
-<?php // pitemp.php v2.0.20240305.2109
+<?php // pitemp.php v2.0.20240530.1630
 include $_SERVER['DOCUMENT_ROOT'].'/includes/include.php';
 // PHP7 does weird things with floats and JSON so we need to ini_set precisions. [Done here because of remote hosting possibly ignoring custom php.ini and .htaccess modifications]
 ini_set('precision', -1);
@@ -46,11 +46,19 @@ echo AKheader($doarr[$do]['title'], (isset($returned['title2']) ? $returned['tit
 <div class="notice" align="center">'.$postdata['info'].'</div>' : '').'
 '.$returned['data'].($context['user']['is_admin'] ? '<br /><br />
 
-<a href="pitemp.php?do=viewSysHistory">View HVAC System History</a> || <a href="pitemp.php?do=setWebVars">Change WebVars</a> || <a href="pitemp.php?showfile">Show RPi POST Content</a>' : '');
+<a href="pitemp.php?do=viewSysHistory">View HVAC System History</a> || <a href="pitemp.php?do=setWebVars">Change WebVars</a> || <a href="pitemp.php?showfile">Show RPi POST Content</a>' : '').'
+
+<script type="text/javascript">
+    function sptg(eid, on) {
+        if (on) {
+            document.getElementById(eid).style.display = \'\'
+        } else {
+            document.getElementById(eid).style.display = \'none\'
+        }
+    }
+</script>';
 
 echo AKfooter();
-
-
 
 /** Functions **/
 
@@ -118,17 +126,56 @@ System UPS Battery: '.round((($data['ups']['data']['main']['battTempC'] * 1.8) +
 <span class="pagedesc">ISS connection error, check cable!</span><br />' : '').'
 Outside Temp, Humidity: '.$wxData['tempOut'].'&#176;F, '.$wxData['humOut'].'%'.($wxData['heatIndex'] > $wxData['tempOut'] + 3 ? ' -- Heat Index: '.$wxData['heatIndex'].'&#176;F' : '').'<br />
 Inside Temp, Humidity: '.$wxData['tempIn'].'&#176;F, '.$wxData['humIn'].'%<br />
-Barometric Pressure: '.$wxData['baro_InHg'].'inHg -- '.$wxData['baroTrend'].'<br />
-Wind (10 minute average): '.$wxData['windNow_dir'].'&#176; '.$wxData['windNow_car'].' at '.$wxData['windAvg10_mph'].'mph '.($wxData['windGust10_mph'] > $wxData['windAvg10_mph'] ? 'gusting to '.$wxData['windGust10_mph'].'mph' : '').($wxData['windChill'] < $wxDATA['tempOut'] - 1 ? ' -- Wind Chill: '.$wxData['windChill'].'&#176;F' : '').'<br />'.($wxData['rain24hr'] ? '
+'.$wxData['baroTrend'].': '.$wxData['baro_InHg'].'inHg<br />
+Wind (10 minute average): '.$wxData['windNow_dir'].'&#176; '.$wxData['windNow_car'].' at '.$wxData['windAvg10_mph'].'mph '.($wxData['windGust10_mph'] > $wxData['windAvg10_mph'] ? 'gusting to '.$wxData['windGust10_mph'].'mph' : '').($wxData['windChill'] < $wxData['tempOut'] - 1 ? ' -- Wind Chill: '.$wxData['windChill'].'&#176;F' : '').'<br />'.($wxData['rain24hr'] ? '
 Rain Inches (last 15min, 1hr, 24hr): '.round($wxData['rain15min'], 2).', '.round($wxData['rain60min'], 2).', '.round($wxData['rain24hr'], 2).($wxData['rainRate'] ? ', currently raining at '.round($wxData['rainRate'], 2).'in/hr' : '').'<br />' : '').'
 Rain Today: '.round($wxData['rainD'], 2).'in -- This month: '.round($wxData['rainM'], 2).'in -- This year: '.round($wxData['rainY'], 2).'in<br />
-<span class="wxhl">Today\'s Highs</span><br />
-Outside Temp, Humidity: <span title="'.$data['wx']['minmax']['maxTime_TempOut'].'">'.$data['wx']['minmax']['maxDay_TempOut'].'&#176;F</span>, <span title="'.$data['wx']['minmax']['maxTime_HumOut'].'">'.$data['wx']['minmax']['maxDay_HumOut'].'%</span>'.($data['wx']['minmax']['maxDay_HeatIndex'] > $data['wx']['minmax']['maxDay_TempOut'] + 1 ? ', Heat Index <span title="'.$data['wx']['minmax']['maxTime_HeatIndex'].'">'.$data['wx']['minmax']['maxDay_HeatIndex'].'&#176;F</span>' : '').'<br />
-Wind speed: <span title="'.$data['wx']['minmax']['maxTime_Wind'].'">'.$data['wx']['minmax']['maxDay_Wind'].'mph</span>, Rain Rate: <span title="'.$data['wx']['minmax']['maxTime_RainRate'].'">'.$data['wx']['minmax']['maxDay_RainRate'].'</span><br />
-Inside Temp, Humidity: <span title="'.$data['wx']['minmax']['maxTime_TempIn'].'">'.$data['wx']['minmax']['maxDay_TempIn'].'&#176;F</span>, <span title="'.$data['wx']['minmax']['maxTime_HumIn'].'">'.$data['wx']['minmax']['maxDay_HumIn'].'%</span><br />
+<span class="wxhl">Today\'s Highs (Updated '.$data['wx']['minmax']['now_s'].')</span><br />
+<span onmouseover="sptg(\'maxtemptime\', 1)" onmouseout="sptg(\'maxtemptime\', 0)">
+    Outside Temp, Humidity: '.$data['wx']['minmax']['maxDay_TempOut'].'&#176;F
+    <span id="maxtemptime" style="display:none"> ('.$data['wx']['minmax']['maxTime_TempOut'].')</span>
+</span>,
+<span onmouseover="sptg(\'maxhumtime\', 1)" onmouseout="sptg(\'maxhumtime\', 0)">
+    '.$data['wx']['minmax']['maxDay_HumOut'].'%
+    <span id="maxhumtime" style="display:none">('.$data['wx']['minmax']['maxTime_HumOut'].')</span>
+</span>'.($data['wx']['minmax']['maxDay_HeatIndex'] > $data['wx']['minmax']['maxDay_TempOut'] + 1 ? ',
+<span onmouseover="sptg(\'maxhitime\', 1)" onmouseout="sptg(\'maxhitime\', 0)">
+    Heat Index '.$data['wx']['minmax']['maxDay_HeatIndex'].'&#176;F
+    <span id=""maxhitime style="display:none">('.$data['wx']['minmax']['maxTime_HeatIndex'].')</span>
+</span>' : '').'<br />
+<span onmouseover="sptg(\'maxwindtime\', 1)" onmouseout="sptg(\'maxwindtime\', 0)">
+    Wind speed: '.$data['wx']['minmax']['maxDay_Wind'].'mph
+    <span id="maxwindtime" style="display:none">('.$data['wx']['minmax']['maxTime_Wind'].')</span>
+</span>,
+<span onmouseover="sptg(\'maxraintime\', 1)" onmouseout="sptg(\'maxraintime\', 0)">
+    Rain Rate: '.$data['wx']['minmax']['maxDay_RainRate'].'in/hr
+    <span id="maxraintime" style="display:none">('.$data['wx']['minmax']['maxTime_RainRate'].')</span>
+</span><br />
+<span onmouseover="sptg(\'maxintemptime\', 1)" onmouseout="sptg(\'maxintemptime\', 0)">
+    Inside Temp, Humidity: '.$data['wx']['minmax']['maxDay_TempIn'].'&#176;F
+    <span id="maxintemptime" style="display:none">('.$data['wx']['minmax']['maxTime_TempIn'].')</span>
+</span>,
+<span onmouseover="sptg(\'maxinhumtime\', 1)" onmouseout="sptg(\'maxinhumtime\', 0)">
+    '.$data['wx']['minmax']['maxDay_HumIn'].'%
+    <span id="maxinhumtime" style="display:none">('.$data['wx']['minmax']['maxTime_HumIn'].')</span>
+</span><br />
 <span class="wxhl">Today\'s Lows</span><br />
-Outside Temp, Humidity: <span title="'.$data['wx']['minmax']['minTime_TempOut'].'">'.$data['wx']['minmax']['minDay_TempOut'].'&#176;F</span>, <span title="'.$data['wx']['minmax']['minTime_HumOut'].'">'.$data['wx']['minmax']['minDay_HumOut'].'%</span><br />
-Inside Temp, Humidity: <span title="'.$data['wx']['minmax']['minTime_TempIn'].'">'.$data['wx']['minmax']['minDay_TempIn'].'&#176;F</span>, <span title="'.$data['wx']['minmax']['minTime_HumIn'].'">'.$data['wx']['minmax']['minDay_HumIn'].'%</span><br />
+<span onmouseover="sptg(\'mintemptime\', 1)" onmouseout="sptg(\'mintemptime\', 0)">
+    Outside Temp, Humidity: '.$data['wx']['minmax']['minDay_TempOut'].'&#176;F
+    <span id="mintemptime" style="display:none">('.$data['wx']['minmax']['minTime_TempOut'].')</span>
+</span>,
+<span onmouseover="sptg(\'minhumtime\', 1)" onmouseout="sptg(\'minhumtime\', 0)">
+    '.$data['wx']['minmax']['minDay_HumOut'].'%
+    <span id="minhumtime" style="display:none">('.$data['wx']['minmax']['minTime_HumOut'].')</span>
+</span><br />
+<span onmouseover="sptg(\'minintemptime\', 1)" onmouseout="sptg(\'minintemptime\', 0)">
+    Inside Temp, Humidity: '.$data['wx']['minmax']['minDay_TempIn'].'&#176;F
+    <span id="minintemptime" style="display:none">('.$data['wx']['minmax']['minTime_TempIn'].')</span>
+</span>,
+<span onmouseover="sptg(\'mininhumtime\', 1)" onmouseout="sptg(\'mininhumtime\', 0)">
+    '.$data['wx']['minmax']['minDay_HumIn'].'%
+    <span id="mininhumtime" style="display:none">('.$data['wx']['minmax']['minTime_HumIn'].')</span>
+</span><br />
 <br /><a href="pitemp.php?do=about">About this page</a><br />' : '');
 
     } else
@@ -186,13 +233,15 @@ function house_logFromPi() {
         'wxo' => $post['wx']['data']['tempOut'],
         'wxi' => $post['wx']['data']['tempIn'],
     );
+    $done = '';
 
     foreach($house['sys'] as $h) {
         // Any HVAC system status changes?
         if (($post['backup']['hvac'][$h]['stat'] == 0 && $post['date']['s'] == $post['backup']['hvac'][$h]['lastoff'] && $post['backup']['hvac'][$h]['lastoff'] !== 0) || ($post['backup']['hvac'][$h]['stat'] == 1 && $post['date']['s'] == $post['backup']['hvac'][$h]['laston'] && $post['backup']['hvac'][$h]['laston'] !== 0)) {
-            if ($h == 'hfan' && $post['backup']['hvac']['ac']['stat']) // Honeywell thermostat switches on A/C then HFan, switches off HFan then A/C. So do not log HFan to MySQL if A/C is on.
+            if ($h == 'hfan' && ($post['backup']['hvac']['ac']['stat'] || strstr($done, 'ac'))) // Honeywell thermostat switches on A/C then HFan, switches off HFan then A/C. So do not log HFan to MySQL if A/C is on or is turning off at the same time.
                 continue;
             $data[] = array( 'date' => $post['date']['u'], 'sys' => $h, 'stat' => $post['backup']['hvac'][$h]['stat'], 'comment' => json_encode($tsave).($post['backup']['power1'] ? '' : ' -- No AC Power, System Not Active') );
+            $done .= "$h ";
         } else {
         // Possible a system change will be missed by data not being properly sent to the site. We can potentially recover and add the most recent changes.
             foreach(array(0, 1) as $ss) {
@@ -238,7 +287,8 @@ function house_logFromPi() {
         if (!$result)
             AKerr('Error saving data to house status change table: '.mysqli_error($ak['mysqli']), 'fatal');
     }
-    die(AKfooter(1)); // This doesn't need any output returned to the source.
+    AKfooter(1);
+    die(); // This doesn't need any output returned to the source.
 }
 
 function house_logWxFromPi() { // A lot simpler than the HVAC stuff because we're not actually logging anything lol
@@ -263,13 +313,14 @@ function house_logWxFromPi() { // A lot simpler than the HVAC stuff because we'r
     $result = mysqli_query($ak['mysqli'], "REPLACE INTO `$house[db]`.`site` (`setting`, `value`) VALUES ('piWxReceivedData', '$ins')");
     if (!$result)
         die(AKerr(mysqli_error($ak['mysqli']), 'fatal'));
-    die(AKfooter(1)); // This doesn't need any output returned to the source.
+    AKfooter(1);
+    die(); // This doesn't need any output returned to the source.
 }
 
 function house_viewSysHistory() {
     global $ak, $house, $context;
 
-    $query = mysqli_query($ak['mysqli'], 'SELECT * FROM `'.$house['db'].'`.`house_hvacStatusLog` ORDER BY `date` DESC'.($_GET['showall'] && $context['user']['is_admin'] ? '' : ' LIMIT 500'));
+    $query = mysqli_query($ak['mysqli'], 'SELECT * FROM `'.$house['db'].'`.`house_hvacStatusLog` ORDER BY `date` DESC'.(isset($_GET['showall']) && $context['user']['is_admin'] ? '' : ' LIMIT 500'));
     while ($h = mysqli_fetch_assoc($query)) {
         $data[$h['sys']][] = $h;
     }

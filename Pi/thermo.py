@@ -2,7 +2,7 @@
 # data to SSD1306-compliant displays, and log data to file + send to my website
 # This script has been written for Python 2.7
 # Author: AK49BWL
-# Updated: 03/05/2024 21:25
+# Updated: 05/30/2024 14:59
 
 # Imports!
 import Adafruit_GPIO.SPI as SPI
@@ -119,11 +119,12 @@ hvac = {
     'hfan': { 'rpin': 22, 'tpin': 0,  'stat': 0 if not bkp else bkp['hvac']['hfan']['stat'], 'laston': 0 if not bkp else bkp['hvac']['hfan']['laston'], 'lastoff': 0 if not bkp else bkp['hvac']['hfan']['lastoff'], 'name': 'HVAC Blower' },
     'afan': { 'rpin': 21, 'tpin': 21, 'stat': 0 if not bkp else bkp['hvac']['afan']['stat'], 'laston': 0 if not bkp else bkp['hvac']['afan']['laston'], 'lastoff': 0 if not bkp else bkp['hvac']['afan']['lastoff'], 'name': 'Attic Fan' }
 }
-hvs = ['ac', 'heat', 'hfan', 'afan']
+# Hacky way of setting up the "foreach" array ... A/C being on or not will determine which array gets used for switching and monitoring.
+hvs = { 0: ['ac', 'heat', 'afan', 'hfan'], 1: ['hfan', 'ac', 'heat', 'afan'] }
 # Do GPIO setup
 GPIO.setwarnings(False) # Disable errors caused by script restarts
 GPIO.setmode(GPIO.BCM) # Use Broadcom Pin Numbering rather than the Board Physical Pin Numbering
-for h in hvs:
+for h in hvs[0]:
     if hvac[h]['rpin']:
         GPIO.setup(hvac[h]['rpin'], GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
     if hvac[h]['tpin']:
@@ -247,6 +248,7 @@ def webvarloader():
                 'tempLow': 65 if not wv else wv['tempLow'], # Low temperature to turn on Heater
                 'tempHigh': 75 if not wv else wv['tempHigh'], # High temperature to turn on A/C
                 'tempHyst': 2 if not wv else wv['tempHyst'], # Temperature Hysteresis
+                'afanTempOvr': 0 if not wv else wv['afanTempOvr'], # Override low temperature limits for attic fan activation
                 'wx': 1 if not wv else wv['wx'], # Enable or disable weather center
             }
             if not firstrun or not wv['lastWebChange'] == backup['lastWebChange']:
@@ -287,7 +289,7 @@ def turn_on_off(sys, on = 0):
 # Update system status
 def update_on_off():
     global notes, notesi, do_log
-    for s in hvs:
+    for s in hvs[hvac['ac']['stat']]:
         if not hvac[s]['rpin']:
             continue
         if (hvac[s]['stat'] and not GPIO.input(hvac[s]['rpin'])) or (not hvac[s]['stat'] and GPIO.input(hvac[s]['rpin'])):
@@ -506,10 +508,10 @@ while 1:
     if not dec['chkattic']:
         dec['chkattic'] = timer['chkattic']
         if not hvac['afan']['stat']:
-            if t_attic - 5 > t_out and t_out > 68 and t_in > 68 and setting['hvac']['afan']: # If attic temp is 5+ degrees over outside temp (and both outside and inside temps are above 68 degrees), turn fans on if enabled
+            if t_attic - 5 > t_out and setting['hvac']['afan'] and (setting['afanTempOvr'] or (t_out > 68 and t_in > 68)): # If attic temp is 5+ degrees over outside temp (and both outside and inside temps are above 68 degrees), turn fans on if enabled
                 turn_on_off('afan', 1)
         else:
-            if t_attic - 3 < t_out or t_out < 65 or t_in < 65: # Turn fans off when attic temp reaches below 3 degrees over outside temp, or when outside or inside temp drops below 65
+            if t_attic - 3 < t_out or (not setting['afanTempOvr'] and (t_out < 65 or t_in < 65)): # Turn fans off when attic temp reaches below 3 degrees over outside temp, or when outside or inside temp drops below 65
                 turn_on_off('afan', 0)
     dec['chkattic'] -= 1
 
@@ -554,13 +556,13 @@ while 1:
                     dispdata[d][e] = str(sensor[e if d == 1 else e + 8]['dispname']) + ': ' + str('--' if pr_f[e if d == 1 else e + 8] <= -50 else pr_f[e if d == 1 else e + 8])
             # Screen 4 will show HVAC status
             e = 0
-            for s in hvs:
+            for s in hvs[0]:
                 dispdata[3][e] = hvac[s]['name'] + ' is ' + ('on' if hvac[s]['stat'] else 'off')
                 dispdata[3][e+1] = 'Last ' + ('off' if hvac[s]['stat'] else 'on')
                 e += 2
             # Screen 5 will show recent HVAC runtimes
             e = 0
-            for s in hvs:
+            for s in hvs[0]:
                 dispdata[4][e] = hvac[s]['laston' if hvac[s]['stat'] else 'lastoff']
                 dispdata[4][e+1] = hvac[s]['lastoff' if hvac[s]['stat'] else 'laston']
                 e += 2
