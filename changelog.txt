@@ -1,3 +1,14 @@
+06/09/2024
+thermo.py:
+-- Added GPIO pin to monitor for power loss
+-- Changed power loss detection code, added Power to hvac system array so AC power will be checked each iteration with the rest of the HVAC systems
+-- Condensed TMP36 sensor array to only active sensors (this code needs work throughout the script)
+-- Attic fans will now turn off if BOTH inside AND outside temps drop below 65
+pitemp.php:
+-- Changed for displaying above changes
+-- Removed all MakerHawk Pi UPS-related code as I am now going a different direction with detection and backup power
+-- Fixed whitespace issues on index display of HiLows content
+
 05/30/2024
 thermo.py:
 -- Changed 'hvs' var, actually more sort of duplicated it into two entries that can be selected in the update_on_off function based on whether A/C is on or not

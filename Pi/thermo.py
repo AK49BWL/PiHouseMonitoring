@@ -2,7 +2,7 @@
 # data to SSD1306-compliant displays, and log data to file + send to my website
 # This script has been written for Python 2.7
 # Author: AK49BWL
-# Updated: 05/30/2024 14:59
+# Updated: 06/09/2024 11:54
 
 # Imports!
 import Adafruit_GPIO.SPI as SPI
@@ -58,10 +58,6 @@ backup = {
     'saved': 0,
     'om': now['om'],
     'num_sens': 0 if not bkp else bkp['num_sens'],
-    'power1': 1 if not bkp else bkp['power1'],
-    'power2': 1 if not bkp else bkp['power2'],
-    'powerlastoff': 0 if not bkp else bkp['powerlastoff'],
-    'powerlaston': 0 if not bkp else bkp['powerlaston'],
     'lastWebChange': 0 if not bkp else bkp['lastWebChange']
 }
 
@@ -92,9 +88,9 @@ dec = { # Decrement vars for timers
 }
 disp = SSD1306(rst=None, i2c_bus = 1, i2c_address=0x3C) # Set up our 128x64 screens
 displays = 5 # Number of screens
-i2cmulti_reset_pin = 4 # Physical pin 7: GPIO pin for resetting I2C multiplexer
+i2cmulti_reset_pin = 4 # Physical pin 7: GPIO pin 4 for resetting I2C multiplexer
 pca3548a=[0b00000001,0b00000010,0b00000100,0b00001000,0b00010000,0b00100000,0b01000000,0b10000000] # I2C Multiplexer channels
-disp_act_pin = 25 # Physical pin 22: GPIO pin for button to activate displays
+disp_act_pin = 25 # Physical pin 22: GPIO pin 25 for button to activate displays
 font = ImageFont.load_default() # SSD1306 screen text font
 
 # Init
@@ -111,16 +107,18 @@ mcp1 = MCP3008(spi=SPI.SpiDev(0, 1)) # SPI Port 0, Device 1
 # Attic fans are controlled exclusively by the Pi so we'll use physical pin 40 (GPIO 21) for the relay coil output
 # In Receiver and Relay modes, original HVAC thermostat controls the HVAC system so we're receiving its triggers
 # Use physical pins 11, 13, 15 (GPIO 17, 27, 22) for A/C, Heat, HFan status receive from the thermostat with pulldown resistors
-# In Relay and Controller modes, the Pi will be in control of the output to the HVAC system
+# In Relay and Controller modes, the Pi will be in control of the output to the HVAC system. Relay mode requires both receive and transmit pins.
 # Use physical pins 29, 31, 33 (GPIO 5, 6, 13) for A/C, Heat, HFan control
+# Power loss detection is on phys pin 32 (GPIO 12) for detecting whether AC mains power is applied (Pi must be powered by an UPS for this to work!)
 hvac = {
     'ac':   { 'rpin': 17, 'tpin': 0,  'stat': 0 if not bkp else bkp['hvac']['ac']['stat'],   'laston': 0 if not bkp else bkp['hvac']['ac']['laston'],   'lastoff': 0 if not bkp else bkp['hvac']['ac']['lastoff'],   'name': 'A/C' },
     'heat': { 'rpin': 27, 'tpin': 0,  'stat': 0 if not bkp else bkp['hvac']['heat']['stat'], 'laston': 0 if not bkp else bkp['hvac']['heat']['laston'], 'lastoff': 0 if not bkp else bkp['hvac']['heat']['lastoff'], 'name': 'Heater' },
     'hfan': { 'rpin': 22, 'tpin': 0,  'stat': 0 if not bkp else bkp['hvac']['hfan']['stat'], 'laston': 0 if not bkp else bkp['hvac']['hfan']['laston'], 'lastoff': 0 if not bkp else bkp['hvac']['hfan']['lastoff'], 'name': 'HVAC Blower' },
-    'afan': { 'rpin': 21, 'tpin': 21, 'stat': 0 if not bkp else bkp['hvac']['afan']['stat'], 'laston': 0 if not bkp else bkp['hvac']['afan']['laston'], 'lastoff': 0 if not bkp else bkp['hvac']['afan']['lastoff'], 'name': 'Attic Fan' }
+    'afan': { 'rpin': 21, 'tpin': 21, 'stat': 0 if not bkp else bkp['hvac']['afan']['stat'], 'laston': 0 if not bkp else bkp['hvac']['afan']['laston'], 'lastoff': 0 if not bkp else bkp['hvac']['afan']['lastoff'], 'name': 'Attic Fan' },
+    'Power': { 'rpin': 12, 'tpin': 0,  'stat': 0 if not bkp else bkp['hvac']['Power']['stat'], 'laston': 0 if not bkp else bkp['hvac']['Power']['laston'], 'lastoff': 0 if not bkp else bkp['hvac']['Power']['lastoff'], 'name': 'AC Mains Power' }
 }
 # Hacky way of setting up the "foreach" array ... A/C being on or not will determine which array gets used for switching and monitoring.
-hvs = { 0: ['ac', 'heat', 'afan', 'hfan'], 1: ['hfan', 'ac', 'heat', 'afan'] }
+hvs = { 0: ['ac', 'heat', 'afan', 'hfan', 'Power'], 1: ['hfan', 'ac', 'heat', 'afan', 'Power'] }
 # Do GPIO setup
 GPIO.setwarnings(False) # Disable errors caused by script restarts
 GPIO.setmode(GPIO.BCM) # Use Broadcom Pin Numbering rather than the Board Physical Pin Numbering
@@ -133,35 +131,27 @@ GPIO.setup(disp_act_pin, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
 
 # Set up temperature sensor data (Names, Chip and Pin numbers, Enable, dynamic temperature data array, voltage error correction)
 sensor = {
-    0:  { 'ch': 0, 'p': 0, 'enable': 1, 'temp': {}, 'corr': -3, 'shn': ' Out ', 'con': '\x1b[1;36;44m Out \x1b[0m', 'dispname': 'Outside',      'name': 'Outside (West Wall)' },
-    1:  { 'ch': 0, 'p': 1, 'enable': 0, 'temp': {}, 'corr': 0,  'shn': '  2  ', 'con': '  2  ',                     'dispname': 'N/C',          'name': '' },
-    2:  { 'ch': 0, 'p': 2, 'enable': 1, 'temp': {}, 'corr': 0,  'shn': 'Hall ', 'con': '\x1b[1;32;42mHall \x1b[0m', 'dispname': 'Hallway',      'name': 'Hallway (Thermostat)' },
-    3:  { 'ch': 0, 'p': 3, 'enable': 1, 'temp': {}, 'corr': 0,  'shn': 'Vent ', 'con': '\x1b[1;31;44mVent \x1b[0m', 'dispname': 'LivRoom Vent', 'name': 'Living Room HVAC Vent' },
-    4:  { 'ch': 0, 'p': 4, 'enable': 0, 'temp': {}, 'corr': 0,  'shn': '  5  ', 'con': '  5  ',                     'dispname': 'N/C',          'name': '' },
-    5:  { 'ch': 0, 'p': 5, 'enable': 0, 'temp': {}, 'corr': 0,  'shn': '  6  ', 'con': '  6  ',                     'dispname': 'N/C',          'name': '' },
-    6:  { 'ch': 0, 'p': 6, 'enable': 0, 'temp': {}, 'corr': 0,  'shn': '  7  ', 'con': '  7  ',                     'dispname': 'N/C',          'name': '' },
-    7:  { 'ch': 0, 'p': 7, 'enable': 1, 'temp': {}, 'corr': 0,  'shn': 'Laund', 'con': 'Laund',                     'dispname': 'Laundry',      'name': 'Laundry Room' },
-    8:  { 'ch': 1, 'p': 0, 'enable': 1, 'temp': {}, 'corr': 0,  'shn': 'Attic', 'con': '\x1b[1;37;41mAttic\x1b[0m', 'dispname': 'Attic',        'name': 'Attic' },
-    9:  { 'ch': 1, 'p': 1, 'enable': 0, 'temp': {}, 'corr': 0,  'shn': ' 1 0 ', 'con': ' 1 0 ',                     'dispname': 'N/C',          'name': '' },
-    10: { 'ch': 1, 'p': 2, 'enable': 1, 'temp': {}, 'corr': 0,  'shn': 'Kitch', 'con': 'Kitch',                     'dispname': 'Kitchen',      'name': 'Kitchen' },
-    11: { 'ch': 1, 'p': 3, 'enable': 0, 'temp': {}, 'corr': 0,  'shn': ' 1 2 ', 'con': ' 1 2 ',                     'dispname': 'N/C',          'name': '' },
-    12: { 'ch': 1, 'p': 4, 'enable': 1, 'temp': {}, 'corr': 0,  'shn': 'VR Rm', 'con': 'VR Rm',                     'dispname': 'VR Room',      'name': 'VR Room' },
-    13: { 'ch': 1, 'p': 5, 'enable': 1, 'temp': {}, 'corr': 0,  'shn': 'BedRm', 'con': 'BedRm',                     'dispname': 'Bedroom',      'name': 'Master Bathroom' },
-    14: { 'ch': 1, 'p': 6, 'enable': 0, 'temp': {}, 'corr': 0,  'shn': ' 1 5 ', 'con': ' 1 5 ',                     'dispname': 'N/C',          'name': '' },
-    15: { 'ch': 1, 'p': 7, 'enable': 0, 'temp': {}, 'corr': 0,  'shn': ' 1 6 ', 'con': ' 1 6 ',                     'dispname': 'N/C',          'name': '' },
-    16: { 'enable': 1, 'temp': {}, 'shn': 'PiCPU', 'con': 'PiCPU', 'name': 'Raspberry Pi CPU' }
+    0: { 'p': 0,  'enable': 1, 'temp': {}, 'corr': -3, 'shn': ' Out ', 'con': '\x1b[1;36;44m Out \x1b[0m', 'dispname': 'Outside',      'name': 'Outside (West Wall)' },
+    1: { 'p': 8,  'enable': 1, 'temp': {}, 'corr': 0,  'shn': 'Attic', 'con': '\x1b[1;37;41mAttic\x1b[0m', 'dispname': 'Attic',        'name': 'Attic' },
+    2: { 'p': 2,  'enable': 1, 'temp': {}, 'corr': 0,  'shn': 'Hall ', 'con': '\x1b[1;32;42mHall \x1b[0m', 'dispname': 'Hallway',      'name': 'Hallway (Thermostat)' },
+    3: { 'p': 3,  'enable': 1, 'temp': {}, 'corr': 0,  'shn': 'Vent ', 'con': '\x1b[1;31;44mVent \x1b[0m', 'dispname': 'LivRoom Vent', 'name': 'Living Room HVAC Vent' },
+    4: { 'p': 7,  'enable': 1, 'temp': {}, 'corr': 0,  'shn': 'Laund', 'con': 'Laund',                     'dispname': 'Laundry',      'name': 'Laundry Room' },
+    5: { 'p': 10, 'enable': 1, 'temp': {}, 'corr': 0,  'shn': 'Kitch', 'con': 'Kitch',                     'dispname': 'Kitchen',      'name': 'Kitchen' },
+    6: { 'p': 12, 'enable': 1, 'temp': {}, 'corr': 0,  'shn': 'VR Rm', 'con': 'VR Rm',                     'dispname': 'VR Room',      'name': 'VR Room' },
+    7: { 'p': 13, 'enable': 1, 'temp': {}, 'corr': 0,  'shn': 'BedRm', 'con': 'BedRm',                     'dispname': 'Bedroom',      'name': 'Master Bathroom' },
+    8: { 'enable': 1, 'temp': {}, 'shn': 'PiCPU', 'con': 'PiCPU', 'name': 'Raspberry Pi CPU' }
 }
-cpusens = 16
+cpusens = 8
 
 # Set up short-name array for console output
-shn = [0]*16
-for i in range(16):
+shn = [0]*8
+for i in range(8):
     shn[i] = sensor[i]['con']
 
 # Set up log-file sensor header line
 schk = 0
 xs = 0
-sens_str = ['Date','A/C','Heat','HFan','AFan']
+sens_str = ['Date','Power','A/C','Heat','HFan','AFan']
 while xs < len(sensor):
     if sensor[xs]['enable']:
         schk += 1
@@ -309,7 +299,7 @@ def log_stat(to_file = 0, to_web = 0, customtext = 0):
         print(cc['fh'] + 'Writing ' + ('custom text to ' if customtext else '') + logfile + cc['e'])
         f = open(logfile, 'a')
         if not customtext:
-            outstr = [now['s'],hvac['ac']['stat'],hvac['heat']['stat'],hvac['hfan']['stat'],hvac['afan']['stat']]
+            outstr = [now['s'],hvac['Power']['stat'],hvac['ac']['stat'],hvac['heat']['stat'],hvac['hfan']['stat'],hvac['afan']['stat']]
             xs = 0
             while xs < len(sensor):
                 if sensor[xs]['enable']:
@@ -322,9 +312,8 @@ def log_stat(to_file = 0, to_web = 0, customtext = 0):
             f.write(now['s'] + ',' + customtext + '\r\n')
         f.close()
     if to_web:
-        print(cc['ws'] + 'Sending data to website' + cc['e'])
         # Create the data array (which is basically literally every variable in this script)
-        for x in range(16):
+        for x in range(8):
             sensor[x]['temp'] = { 'v': values['v'][x], 'c': values['c'][x], 'f': values['f'][x] }
         backup['hvac'] = hvac
         webdata = {
@@ -339,6 +328,7 @@ def log_stat(to_file = 0, to_web = 0, customtext = 0):
                 'minmax': gv.wxMinMax,
             }
         }
+        print(cc['ws'] + 'Sending data to website' + cc['e'])
         threading.Thread(target=logToWebThr, args=(webdata,)).start() # Fire away fro fro fro fro from this place that we call home...
         dec['web'] = timer['web']
 
@@ -479,17 +469,17 @@ while 1:
     if not dec['temp']:
         # Initialize temperature value array - this has to come before anything else otherwise values will be undefined!
         values = { 'v': {}, 'c': {}, 'f': {} }
-        pr_v = [0]*16
-        pr_c = [0]*16
-        pr_f = [0]*16
+        pr_v = [0]*8
+        pr_c = [0]*8
+        pr_f = [0]*8
         # Get TMP36 sensor data
-        for i in range(16):
-            pr_v[i] = values['v'][i] = (mcp0.read_adc(i) if i < 8 else mcp1.read_adc(i-8)) + setting['tempGlobalCorr'] + sensor[i]['corr'] # Get the voltage value of the channels from both MCP3008 ADC chips, adjusting as needed
+        for i in range(8):
+            pr_v[i] = values['v'][i] = (mcp0.read_adc(sensor[i]['p']) if sensor[i]['p'] < 8 else mcp1.read_adc(sensor[i]['p']-8)) + setting['tempGlobalCorr'] + sensor[i]['corr'] # Get the voltage value of the channels from both MCP3008 ADC chips, adjusting as needed
             pr_c[i] = values['c'][i] = round(((values['v'][i] * setting['tempRefVolt']) / 1024.0) -50.0, 1) # Conversion to Celsius: MCP3008 Ref voltage / 10-bit ADC - TMP36 sensor 0-value is -50*C
             pr_f[i] = values['f'][i] = round((values['c'][i] * 1.8) + 32, 1) # Conversion to Fahrenheit
         t_out = pr_f[0]
         t_in = pr_f[2]
-        t_attic = pr_f[8]
+        t_attic = pr_f[1]
         t_use = 'TMP36 Temp Sensors'
         # Get Pi CPU Temperature and convert to Fahrenheit
         sensor[cpusens]['temp']['c'] = values['c'][cpusens] = round(CPUTemperature().temperature, 1)
@@ -502,7 +492,7 @@ while 1:
             t_use = 'Davis Weather Center'
 
     if not dec['cmd']:
-        print(now['s'] + ' -- Pi Uptime: ' + str(datetime.timedelta(seconds=now['sut'])) + ' -- Script Runtime: ' + str(datetime.timedelta(seconds=now['u'] - now['scr'])) + ' -- CPU Temp: ' + str(values['c'][cpusens]) + '*C (' + str(values['f'][cpusens]) + '*F)')
+        print(now['s'] + ' -- Pi Uptime: ' + str(datetime.timedelta(seconds=now['sut'])) + ' -- Script Runtime: ' + str(datetime.timedelta(seconds=now['u'] - now['scr'])) + ' -- CPU Temp: ' + str(values['f'][cpusens]) + '*F')
 
     # Check attic temp for fans
     if not dec['chkattic']:
@@ -511,7 +501,7 @@ while 1:
             if t_attic - 5 > t_out and setting['hvac']['afan'] and (setting['afanTempOvr'] or (t_out > 68 and t_in > 68)): # If attic temp is 5+ degrees over outside temp (and both outside and inside temps are above 68 degrees), turn fans on if enabled
                 turn_on_off('afan', 1)
         else:
-            if t_attic - 3 < t_out or (not setting['afanTempOvr'] and (t_out < 65 or t_in < 65)): # Turn fans off when attic temp reaches below 3 degrees over outside temp, or when outside or inside temp drops below 65
+            if t_attic - 3 < t_out or not setting['hvac']['afan'] or (not setting['afanTempOvr'] and t_out < 65 and t_in < 65): # Turn fans off when attic temp reaches below 3 degrees over outside temp, or when outside and inside temp drops below 65
                 turn_on_off('afan', 0)
     dec['chkattic'] -= 1
 
@@ -527,16 +517,18 @@ while 1:
     # Print current status of systems
     if not dec['cmd']:
         dec['cmd'] = timer['cmd']
-        print('A/C is ' + (cc['dis'] if not setting['hvac']['ac'] else cc['on'] if hvac['ac']['stat'] else cc['off']) + ', Heater is ' + (cc['dis'] if not setting['hvac']['heat'] else cc['on'] if hvac['heat']['stat'] else cc['off']) + ', HVAC Blower is ' + (cc['dis'] if not setting['hvac']['hfan'] else cc['on'] if hvac['hfan']['stat'] else cc['off']) + ', Attic Fan is ' + (cc['dis'] if not setting['hvac']['afan'] else cc['on'] if hvac['afan']['stat'] else cc['off']) + ', AC Power is ' + (cc['on'] if backup['power1'] else cc['off']))
+        print('A/C is ' + (cc['dis'] if not setting['hvac']['ac'] else cc['on'] if hvac['ac']['stat'] else cc['off']) + ', Heater is ' + (cc['dis'] if not setting['hvac']['heat'] else cc['on'] if hvac['heat']['stat'] else cc['off']) + ', HVAC Blower is ' + (cc['dis'] if not setting['hvac']['hfan'] else cc['on'] if hvac['hfan']['stat'] else cc['off']) + ', Attic Fan is ' + (cc['dis'] if not setting['hvac']['afan'] else cc['on'] if hvac['afan']['stat'] else cc['off']) + ', AC Power is ' + (cc['on'] if hvac['Power']['stat'] else cc['off']))
     dec['cmd'] -= 1
 
     if not dec['temp']:
         dec['temp'] = timer['temp']
         # Print the MCP3008 values to terminal last that way all other output is written first
-        print('| {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |'.format(*shn))
-        print('| {:5} | {:5} | {:5} | {:5} | {:5} | {:5} | {:5} | {:5} | {:5} | {:5} | {:5} | {:5} | {:5} | {:5} | {:5} | {:5} |'.format(*pr_v)) # Show raw ADC values
-        print('| {:5} | {:5} | {:5} | {:5} | {:5} | {:5} | {:5} | {:5} | {:5} | {:5} | {:5} | {:5} | {:5} | {:5} | {:5} | {:5} |'.format(*pr_c)) # Show Celsius
-        print('| {:5} | {:5} | {:5} | {:5} | {:5} | {:5} | {:5} | {:5} | {:5} | {:5} | {:5} | {:5} | {:5} | {:5} | {:5} | {:5} |'.format(*pr_f)) # Show Fahrenheit
+        print('| {} | {} | {} | {} | {} | {} | {} | {} |'.format(*shn))
+        print('| {:5} | {:5} | {:5} | {:5} | {:5} | {:5} | {:5} | {:5} |'.format(*pr_v)) # Show raw ADC values
+        # print('| {:5} | {:5} | {:5} | {:5} | {:5} | {:5} | {:5} | {:5} |'.format(*pr_c)) # Show Celsius
+        print('| {:5} | {:5} | {:5} | {:5} | {:5} | {:5} | {:5} | {:5} |'.format(*pr_f)) # Show Fahrenheit
+        # Also print WxData temps and which the system is using currently
+        print('WxData Inside Temp: ' + str(gv.wxData['tempIn']) + '*F, Outside Temp: ' + str(gv.wxData['tempOut']) + '*F, currently using ' + t_use + ' for HVAC control')
 
     # Send output to 128x64 screens if they're not sleeping
     if dec['display']:
@@ -547,11 +539,12 @@ while 1:
             dispdata = {}
             for d in range(displays):
                 dispdata[d] = {0:0,1:0,2:0,3:0,4:0,5:0,6:0,7:0} # All variables will have data, even if they won't be displayed.
-            # Screen 1 will give us the date and time, Pi CPU Temp
+            # Screen 1 will give us the date and time, Pi CPU Temp, and Power status
             dispdata[0][0] = now['s']
             dispdata[0][2] = 'Pi: ' + str(sensor[cpusens]['temp']['c']) + '*C (' + str(sensor[cpusens]['temp']['f']) + '*F)'
+            dispdata[0][4] = 'AC Mains Power is ' + ('On' if hvac['Power']['stat'] else 'Off')
             # We'll use screens 2 and 3 to output all the temperature sensor data
-            for d in range(1, 3):
+            for d in range(1, 2): # range(1, 3) if using 16 temp sensors, else screen 3 will be blank
                 for e in range(8):
                     dispdata[d][e] = str(sensor[e if d == 1 else e + 8]['dispname']) + ': ' + str('--' if pr_f[e if d == 1 else e + 8] <= -50 else pr_f[e if d == 1 else e + 8])
             # Screen 4 will show HVAC status
@@ -575,7 +568,6 @@ while 1:
 
     # Reset and update vars
     dec['temp'] -= 1
-    backup['power2'] = backup['power1']
     notes = {}
     notesi = 0
     do_log = 0

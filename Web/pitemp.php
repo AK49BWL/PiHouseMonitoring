@@ -1,4 +1,4 @@
-<?php // pitemp.php v2.0.20240530.1630
+<?php // pitemp.php v2.0.20240609.1519
 include $_SERVER['DOCUMENT_ROOT'].'/includes/include.php';
 // PHP7 does weird things with floats and JSON so we need to ini_set precisions. [Done here because of remote hosting possibly ignoring custom php.ini and .htaccess modifications]
 ini_set('precision', -1);
@@ -6,7 +6,7 @@ ini_set('serialize_precision', -1);
 
 $house = array(
     'db' => $ak['db']['dbs'][0],
-    'sys' => array('ac', 'heat', 'afan', 'hfan'),
+    'sys' => array('ac', 'heat', 'afan', 'hfan', 'Power'),
 );
 
 // No action, go to index
@@ -90,6 +90,8 @@ function house_index() {
         foreach ($data['notes'] as $note)
             $noteout[] = $note;
         foreach ($data['backup']['hvac'] as $key => $value) {
+            if ($key == 'Power')
+                continue; // This is separate from the rest of the HVAC stuff.
             if ($value['stat'])
                 $sysout1[] = $value['name'].' is <span class="hvon">on</span> since '.$value['laston'].', last off: '.(date('Ymd', strtotime($value['laston'])) == date('Ymd', strtotime($value['lastoff'])) ? date('H:i:s', strtotime($value['lastoff'])) : $value['lastoff']);
             else
@@ -100,27 +102,23 @@ function house_index() {
                 $tskip++;
                 continue;
             }
-            $tempout[] = ($context['user']['is_admin'] && isset($tempdata['ch']) ? 'Sensor '.($tempdata['ch'] ? $tempdata['p'] + 8 : $tempdata['p']).': ' : '').$tempdata['name'].': '.$tempdata['temp']['f'].'&#176;F, '.$tempdata['temp']['c'].'&#176;C';
+            $tempout[] = ($context['user']['is_admin'] && isset($tempdata['p']) ? 'Sensor '.$tempdata['p'].': ' : '').$tempdata['name'].': '.$tempdata['temp']['f'].'&#176;F, '.$tempdata['temp']['c'].'&#176;C';
         }
-        $data['ups']['enable'] = 0; // Stopgap - there is no UPS right now. But maybe someday there will be so I'll leave the various code segments here for then. Yay undefined vars!
         $return = '<br />
 <span class="notice">'.date('F j, Y H:i:s', strtotime($data['date']['s'])).'</span><br />'.($oldData ? '
 <span class="pagedesc">No data from RPi in over 15 minutes</span><br />' : '').(isset($noteout) ? '
 <span class="pagedesc">'.implode(', ', $noteout).'</span><br />' : '').'
 <span class=notice2>Raspberry Pi Status:</span><br />
 Pi Uptime: '.getTimeFromSeconds($data['date']['sut'], 'array', 0, 0)['str'].'<br />
-Script Runtime: '.getTimeFromSeconds(($data['date']['u'] - $data['date']['scr']), 'array', 0, 0)['str'].'<br />'.($data['ups']['enable'] ? '
-Power Source: '.($data['ups']['data']['bat']['chg'] == 'Discharging' ? 'UPS Battery (AC Power '.($data['backup']['power1'] ? 'On' : 'Off').')' : 'AC Mains (UPS Enabled)').'<br />
-UPS Battery: '.$data['ups']['data']['main']['battCap'].'% Capacity, '.$data['ups']['data']['bat']['v'].' Volts, '.($data['ups']['data']['bat']['chg'] == 'Discharging' ? 'Discharging at '.str_replace('-', '', $data['ups']['data']['bat']['a']).'mA to power Pi and systems' : 'Charging at '.$data['ups']['data']['bat']['a'].'mA').'<br />' : '
-Power Source: AC Mains (UPS Disabled)<br />').'
-Last recorded AC power loss: '.$data['backup']['powerlastoff'].', '.($data['backup']['power1'] ? 'on since '.$data['backup']['powerlaston'] : ', ongoing (last on: '.$data['backup']['powerlaston'].')').'<br />
+Script Runtime: '.getTimeFromSeconds(($data['date']['u'] - $data['date']['scr']), 'array', 0, 0)['str'].'<br />
+Pi Power Source: '.($data['backup']['hvac']['Power']['stat'] ? 'AC Mains' : 'UPS Battery').'<br />
+Last recorded AC power loss: '.$data['backup']['hvac']['Power']['lastoff'].', '.($data['backup']['hvac']['Power']['stat'] ? 'on since '.$data['backup']['hvac']['Power']['laston'] : 'ongoing (last on: '.$data['backup']['hvac']['Power']['laston'].')').'<br />
 <span class=notice2>HVAC Status:</span><br />
 '.implode('<br />', (isset($sysout1) ? array(implode('<br />', $sysout1), implode('<br />', $sysout2)) : $sysout2)).'<br />
 <span class="notice2">TMP36 Sensor Temperatures:</span><br />
 '.implode ('<br />
-', $tempout).'<br />'.($data['ups']['enable'] ? '
-System UPS Battery: '.round((($data['ups']['data']['main']['battTempC'] * 1.8) + 32), 1).'&#176;F, '.$data['ups']['data']['main']['battTempC'].'&#176;C<br />' : '').($tskip ? '
-'.$tskip.' sensors skipped due to not being in use<br />
+', $tempout).'<br />'.($tskip ? '
+'.$tskip.' sensors skipped due to not being in use<br />' : '').'
 <span class="notice2">Weather Center (Updated '.$wxData['now_s'].'):</span><br />'.(!$data['setting']['wx'] ? '
 <span class="pagedesc">Weather center checks have been disabled due to multiple failures.</span><br />' : '').($wxData['ISSerror'] ? '
 <span class="pagedesc">ISS connection error, check cable!</span><br />' : '').'
@@ -131,52 +129,19 @@ Wind (10 minute average): '.$wxData['windNow_dir'].'&#176; '.$wxData['windNow_ca
 Rain Inches (last 15min, 1hr, 24hr): '.round($wxData['rain15min'], 2).', '.round($wxData['rain60min'], 2).', '.round($wxData['rain24hr'], 2).($wxData['rainRate'] ? ', currently raining at '.round($wxData['rainRate'], 2).'in/hr' : '').'<br />' : '').'
 Rain Today: '.round($wxData['rainD'], 2).'in -- This month: '.round($wxData['rainM'], 2).'in -- This year: '.round($wxData['rainY'], 2).'in<br />
 <span class="wxhl">Today\'s Highs (Updated '.$data['wx']['minmax']['now_s'].')</span><br />
-<span onmouseover="sptg(\'maxtemptime\', 1)" onmouseout="sptg(\'maxtemptime\', 0)">
-    Outside Temp, Humidity: '.$data['wx']['minmax']['maxDay_TempOut'].'&#176;F
-    <span id="maxtemptime" style="display:none"> ('.$data['wx']['minmax']['maxTime_TempOut'].')</span>
-</span>,
-<span onmouseover="sptg(\'maxhumtime\', 1)" onmouseout="sptg(\'maxhumtime\', 0)">
-    '.$data['wx']['minmax']['maxDay_HumOut'].'%
-    <span id="maxhumtime" style="display:none">('.$data['wx']['minmax']['maxTime_HumOut'].')</span>
-</span>'.($data['wx']['minmax']['maxDay_HeatIndex'] > $data['wx']['minmax']['maxDay_TempOut'] + 1 ? ',
-<span onmouseover="sptg(\'maxhitime\', 1)" onmouseout="sptg(\'maxhitime\', 0)">
-    Heat Index '.$data['wx']['minmax']['maxDay_HeatIndex'].'&#176;F
-    <span id=""maxhitime style="display:none">('.$data['wx']['minmax']['maxTime_HeatIndex'].')</span>
-</span>' : '').'<br />
-<span onmouseover="sptg(\'maxwindtime\', 1)" onmouseout="sptg(\'maxwindtime\', 0)">
-    Wind speed: '.$data['wx']['minmax']['maxDay_Wind'].'mph
-    <span id="maxwindtime" style="display:none">('.$data['wx']['minmax']['maxTime_Wind'].')</span>
-</span>,
-<span onmouseover="sptg(\'maxraintime\', 1)" onmouseout="sptg(\'maxraintime\', 0)">
-    Rain Rate: '.$data['wx']['minmax']['maxDay_RainRate'].'in/hr
-    <span id="maxraintime" style="display:none">('.$data['wx']['minmax']['maxTime_RainRate'].')</span>
-</span><br />
-<span onmouseover="sptg(\'maxintemptime\', 1)" onmouseout="sptg(\'maxintemptime\', 0)">
-    Inside Temp, Humidity: '.$data['wx']['minmax']['maxDay_TempIn'].'&#176;F
-    <span id="maxintemptime" style="display:none">('.$data['wx']['minmax']['maxTime_TempIn'].')</span>
-</span>,
-<span onmouseover="sptg(\'maxinhumtime\', 1)" onmouseout="sptg(\'maxinhumtime\', 0)">
-    '.$data['wx']['minmax']['maxDay_HumIn'].'%
-    <span id="maxinhumtime" style="display:none">('.$data['wx']['minmax']['maxTime_HumIn'].')</span>
-</span><br />
+<span onmouseover="sptg(\'maxtemptime\', 1)" onmouseout="sptg(\'maxtemptime\', 0)">Outside Temp, Humidity: '.$data['wx']['minmax']['maxDay_TempOut'].'&#176;F<span id="maxtemptime" style="display:none"> ('.$data['wx']['minmax']['maxTime_TempOut'].')</span></span>,
+<span onmouseover="sptg(\'maxhumtime\', 1)" onmouseout="sptg(\'maxhumtime\', 0)">'.$data['wx']['minmax']['maxDay_HumOut'].'%<span id="maxhumtime" style="display:none">('.$data['wx']['minmax']['maxTime_HumOut'].')</span></span>'.($data['wx']['minmax']['maxDay_HeatIndex'] > $data['wx']['minmax']['maxDay_TempOut'] + 1 ? ',
+<span onmouseover="sptg(\'maxhitime\', 1)" onmouseout="sptg(\'maxhitime\', 0)">Heat Index '.$data['wx']['minmax']['maxDay_HeatIndex'].'&#176;F<span id=""maxhitime style="display:none">('.$data['wx']['minmax']['maxTime_HeatIndex'].')</span></span>' : '').'<br />
+<span onmouseover="sptg(\'maxwindtime\', 1)" onmouseout="sptg(\'maxwindtime\', 0)">Wind speed: '.$data['wx']['minmax']['maxDay_Wind'].'mph<span id="maxwindtime" style="display:none">('.$data['wx']['minmax']['maxTime_Wind'].')</span></span>,
+<span onmouseover="sptg(\'maxraintime\', 1)" onmouseout="sptg(\'maxraintime\', 0)">Rain Rate: '.$data['wx']['minmax']['maxDay_RainRate'].'in/hr<span id="maxraintime" style="display:none">('.$data['wx']['minmax']['maxTime_RainRate'].')</span></span><br />
+<span onmouseover="sptg(\'maxintemptime\', 1)" onmouseout="sptg(\'maxintemptime\', 0)">Inside Temp, Humidity: '.$data['wx']['minmax']['maxDay_TempIn'].'&#176;F<span id="maxintemptime" style="display:none">('.$data['wx']['minmax']['maxTime_TempIn'].')</span></span>,
+<span onmouseover="sptg(\'maxinhumtime\', 1)" onmouseout="sptg(\'maxinhumtime\', 0)">'.$data['wx']['minmax']['maxDay_HumIn'].'%<span id="maxinhumtime" style="display:none">('.$data['wx']['minmax']['maxTime_HumIn'].')</span></span><br />
 <span class="wxhl">Today\'s Lows</span><br />
-<span onmouseover="sptg(\'mintemptime\', 1)" onmouseout="sptg(\'mintemptime\', 0)">
-    Outside Temp, Humidity: '.$data['wx']['minmax']['minDay_TempOut'].'&#176;F
-    <span id="mintemptime" style="display:none">('.$data['wx']['minmax']['minTime_TempOut'].')</span>
-</span>,
-<span onmouseover="sptg(\'minhumtime\', 1)" onmouseout="sptg(\'minhumtime\', 0)">
-    '.$data['wx']['minmax']['minDay_HumOut'].'%
-    <span id="minhumtime" style="display:none">('.$data['wx']['minmax']['minTime_HumOut'].')</span>
-</span><br />
-<span onmouseover="sptg(\'minintemptime\', 1)" onmouseout="sptg(\'minintemptime\', 0)">
-    Inside Temp, Humidity: '.$data['wx']['minmax']['minDay_TempIn'].'&#176;F
-    <span id="minintemptime" style="display:none">('.$data['wx']['minmax']['minTime_TempIn'].')</span>
-</span>,
-<span onmouseover="sptg(\'mininhumtime\', 1)" onmouseout="sptg(\'mininhumtime\', 0)">
-    '.$data['wx']['minmax']['minDay_HumIn'].'%
-    <span id="mininhumtime" style="display:none">('.$data['wx']['minmax']['minTime_HumIn'].')</span>
-</span><br />
-<br /><a href="pitemp.php?do=about">About this page</a><br />' : '');
+<span onmouseover="sptg(\'mintemptime\', 1)" onmouseout="sptg(\'mintemptime\', 0)">Outside Temp, Humidity: '.$data['wx']['minmax']['minDay_TempOut'].'&#176;F<span id="mintemptime" style="display:none">('.$data['wx']['minmax']['minTime_TempOut'].')</span></span>,
+<span onmouseover="sptg(\'minhumtime\', 1)" onmouseout="sptg(\'minhumtime\', 0)">'.$data['wx']['minmax']['minDay_HumOut'].'%<span id="minhumtime" style="display:none">('.$data['wx']['minmax']['minTime_HumOut'].')</span></span><br />
+<span onmouseover="sptg(\'minintemptime\', 1)" onmouseout="sptg(\'minintemptime\', 0)">Inside Temp, Humidity: '.$data['wx']['minmax']['minDay_TempIn'].'&#176;F<span id="minintemptime" style="display:none">('.$data['wx']['minmax']['minTime_TempIn'].')</span></span>,
+<span onmouseover="sptg(\'mininhumtime\', 1)" onmouseout="sptg(\'mininhumtime\', 0)">'.$data['wx']['minmax']['minDay_HumIn'].'%<span id="mininhumtime" style="display:none">('.$data['wx']['minmax']['minTime_HumIn'].')</span></span><br />
+<br /><a href="pitemp.php?do=about">About this page</a><br />';
 
     } else
         $return = 'Something really broke.<br />';
@@ -191,13 +156,12 @@ Rain Today: '.round($wxData['rainD'], 2).'in -- This month: '.round($wxData['rai
 function house_about() {
     global $ak;
     $return = '<br />
-<span class="box">Data provided by my Raspberry Pi 3B+ microcontroller running my very own Python script for systems monitoring<br />
+<span class="box">Data provided by my Raspberry Pi 3B+ microcontroller running my very own Python scripts for systems monitoring<br />
 Data updates every 5 minutes OR when a system status changes<br />
 Custom circuitry includes:<br />
 -- TMP36 analog output temperature sensors with an MCP3008 ADC IC with 3.3v reference read via SPI<br />
 -- 24v relays from a receiver amplifier activated by my HVAC system thermostat, relays activate GPIO pins on the Pi for reading system status<br />
 -- optocoupler relay module to switch 110vAC power to my attic fans based on temperature readings<br />
--- MakerHawk UPS+ EP-0136 battery backup module for keeping the Pi running and detecting power outages<br /></span><br />
 Further data such as indoor and outdoor humidity, rain rate, wind speed and direction, heat index, and more is provided by a Davis Vantage Pro 2 Weather Center via Serial Data (using code from <a href="https://www.annoyingdesigns.com/wospi/" target="_blank">WOSPi Python library</a>)<br />
 <img src="'.$ak['url'].'/img/pi.jpg" alt="Pi" title="Pi" />';
     return array( 'data' => $return );
@@ -228,7 +192,7 @@ function house_logFromPi() {
     $tsave = array(
         'out' => $post['tempdata'][0]['temp']['f'],
         'in' => $post['tempdata'][2]['temp']['f'],
-        'att' => $post['tempdata'][8]['temp']['f'],
+        'att' => $post['tempdata'][1]['temp']['f'],
         'vent' => $post['tempdata'][3]['temp']['f'],
         'wxo' => $post['wx']['data']['tempOut'],
         'wxi' => $post['wx']['data']['tempIn'],
@@ -240,7 +204,7 @@ function house_logFromPi() {
         if (($post['backup']['hvac'][$h]['stat'] == 0 && $post['date']['s'] == $post['backup']['hvac'][$h]['lastoff'] && $post['backup']['hvac'][$h]['lastoff'] !== 0) || ($post['backup']['hvac'][$h]['stat'] == 1 && $post['date']['s'] == $post['backup']['hvac'][$h]['laston'] && $post['backup']['hvac'][$h]['laston'] !== 0)) {
             if ($h == 'hfan' && ($post['backup']['hvac']['ac']['stat'] || strstr($done, 'ac'))) // Honeywell thermostat switches on A/C then HFan, switches off HFan then A/C. So do not log HFan to MySQL if A/C is on or is turning off at the same time.
                 continue;
-            $data[] = array( 'date' => $post['date']['u'], 'sys' => $h, 'stat' => $post['backup']['hvac'][$h]['stat'], 'comment' => json_encode($tsave).($post['backup']['power1'] ? '' : ' -- No AC Power, System Not Active') );
+            $data[] = array( 'date' => $post['date']['u'], 'sys' => $h, 'stat' => $post['backup']['hvac'][$h]['stat'], 'comment' => json_encode($tsave).($post['backup']['hvac']['Power']['stat'] ? '' : ' -- No AC Power, System Not Active') );
             $done .= "$h ";
         } else {
         // Possible a system change will be missed by data not being properly sent to the site. We can potentially recover and add the most recent changes.
@@ -259,10 +223,6 @@ function house_logFromPi() {
             }
         }
     }
-
-    // Check AC Power status
-    if ($post['backup']['power1'] !== $post['backup']['power2'])
-        $data[] = array( 'date' => $post['date']['u'], 'sys' => 'Power', 'stat' => $post['backup']['power1'], 'comment' => 'V-In MicroUSB: '.$post['ups']['data']['main']['v_chgM'].'mV, V-In USB-C: '.$post['ups']['data']['main']['v_chgC'].'mV' );
 
     // One last check, has thermo.py been freshly restarted?
     if (!$post['backup']['saved'])
